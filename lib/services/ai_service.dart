@@ -2,13 +2,17 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'auth_service.dart';
+import 'api_service.dart';
 
 class AiService {
-  // Use 10.203.244.19 if testing on Android Emulator, otherwise localhost for Web/iOS
-  // Use physical LAN IP (10.203.244.19) since 10.203.244.19 loopback is timing out on Android
-  static const String _baseUrl = 'http://10.203.244.19:8000/api/ai';
+  // Use configurable URL from ApiService
+  static String get _baseUrl => '${ApiService.aiBaseUrl}/api/ai';
 
-  Future<Map<String, dynamic>> sendChatMessage(String message, String patientId, {Map<String, dynamic>? vitals}) async {
+  Future<Map<String, dynamic>> sendChatMessage(
+    String message,
+    String patientId, {
+    Map<String, dynamic>? vitals,
+  }) async {
     try {
       final token = await AuthService().getToken();
       final response = await http.post(
@@ -25,7 +29,9 @@ class AiService {
       if (response.statusCode == 200) {
         return jsonDecode(response.body);
       } else {
-        throw Exception('Failed to communicate with AI Server: ${response.statusCode}');
+        throw Exception(
+          'Failed to communicate with AI Server: ${response.statusCode}',
+        );
       }
     } catch (e) {
       debugPrint('AI Service Error: $e');
@@ -33,7 +39,9 @@ class AiService {
     }
   }
 
-  Future<Map<String, dynamic>> getHealthPrediction(Map<String, dynamic> vitals) async {
+  Future<Map<String, dynamic>> getHealthPrediction(
+    Map<String, dynamic> vitals,
+  ) async {
     try {
       final response = await http.post(
         Uri.parse('$_baseUrl/predict/'),
@@ -52,19 +60,20 @@ class AiService {
     }
   }
 
-  Future<Map<String, dynamic>> extractTextFromImage(String filePath, String patientId) async {
+  Future<Map<String, dynamic>> extractTextFromImage(
+    String filePath,
+    String patientId,
+  ) async {
     try {
       final token = await AuthService().getToken();
       final request = http.MultipartRequest(
         'POST',
         Uri.parse('$_baseUrl/ocr/'),
       );
-      
+
       request.fields['patient_id'] = patientId;
       if (token != null) request.fields['token'] = token;
-      request.files.add(
-        await http.MultipartFile.fromPath('file', filePath),
-      );
+      request.files.add(await http.MultipartFile.fromPath('file', filePath));
 
       final response = await request.send();
       final responseBody = await response.stream.bytesToString();

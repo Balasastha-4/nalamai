@@ -61,3 +61,21 @@ ai_service/__pycache__/
 
 # Logs
 *.log
+
+# Docker & Database
+.env
+postgres_data/
+pgadmin_data/
+
+# Backend/Maven
+backend/target/
+backend/.mvn/wrapper/*.jar
+backend/*.jar
+backend/*.war
+backend/.settings/
+backend/.classpath
+backend/.project
+backend/.factorypath
+
+# Database init scripts (optional - comment out if you want to commit them)
+# init-scripts/

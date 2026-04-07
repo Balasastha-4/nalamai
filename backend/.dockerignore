@@ -1,0 +1,23 @@
+# Maven
+target/
+!.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+# IDE
+.idea
+.vscode
+*.swp
+*.bak
+*.tmp
+*.log
+.DS_Store
+
+# Gradle
+.gradle
+build/
+
+# Other
+*.class
+*.jar
+!**/wrapper/*.jar

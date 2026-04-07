@@ -1,44 +1,127 @@
-from fastapi import FastAPI, Request
-from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
-from fastapi.middleware.cors import CORSMiddleware
-from routers import ocr, prediction, gemini
+"""
+NalaMAI AI Service - Main FastAPI Application
+"""
 
+import logging
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
+
+from config import config
+from app.utils.logger import setup_logger
+from app.routes import chat, prediction, ocr, analysis, vitals, analytics_dash, symptoms, clinical_notes, agent, preventive_care
+
+# Setup logging
+logger = setup_logger(__name__, config.LOG_LEVEL)
+
+
+# Lifespan context manager for startup/shutdown events
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Manage application lifecycle"""
+    # Startup
+    logger.info("Starting NalaMAI AI Service")
+    logger.info(f"API Version: {config.API_VERSION}")
+    logger.info(f"Gemini Model: {config.GEMINI_MODEL}")
+
+    yield
+
+    # Shutdown
+    logger.info("Shutting down NalaMAI AI Service")
+
+
+# Create FastAPI app
 app = FastAPI(
-    title="Nalamai AI Microservice",
-    description="Python API for Medical OCR, Health Prediction, and Gemini Agentic API",
-    version="1.0.0"
+    title=config.API_TITLE,
+    description=config.API_DESCRIPTION,
+    version=config.API_VERSION,
+    lifespan=lifespan,
 )
 
-@app.exception_handler(RequestValidationError)
-async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    print(f"DEBUG: Validation Error for {request.method} {request.url}")
-    print(f"DEBUG: Errors: {exc.errors()}")
-    print(f"DEBUG: Body: {await request.body()}")
-    return JSONResponse(
-        status_code=422,
-        content={"detail": exc.errors(), "body": str(await request.body())},
-    )
-
-# Configure CORS so Flutter and Spring Boot can communicate with this service
+# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # In production, restrict this to specific domains
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=config.ALLOWED_ORIGINS,
+    allow_credentials=config.ALLOWED_CREDENTIALS,
+    allow_methods=config.ALLOWED_METHODS,
+    allow_headers=config.ALLOWED_HEADERS,
 )
 
-# Include endpoint routers
-app.include_router(ocr.router, prefix="/api/ai/ocr", tags=["OCR"])
-app.include_router(prediction.router, prefix="/api/ai/predict", tags=["Prediction"])
-app.include_router(gemini.router, prefix="/api/ai/chat", tags=["Agentic AI"])
 
-@app.get("/api/ai/health")
+# Global exception handlers
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Handle validation errors"""
+    logger.warning(f"Validation error: {exc}")
+    return JSONResponse(
+        status_code=422,
+        content={
+            "status": "error",
+            "message": "Validation failed",
+            "details": exc.errors(),
+        },
+    )
+
+
+@app.exception_handler(Exception)
+async def general_exception_handler(request: Request, exc: Exception):
+    """Handle general exceptions"""
+    logger.error(f"Unexpected error: {str(exc)}", exc_info=exc)
+    return JSONResponse(
+        status_code=500,
+        content={
+            "status": "error",
+            "message": "Internal server error",
+            "error": str(exc) if config.DEBUG else "An unexpected error occurred",
+        },
+    )
+
+
+# Health check endpoint
+@app.get("/health", tags=["Health"])
 async def health_check():
-    return {"status": "success", "message": "Nalamai Python AI Microservice is running!"}
+    """Health check endpoint"""
+    return {
+        "status": "ok",
+        "service": "NalaMAI AI Service",
+        "version": config.API_VERSION,
+    }
+
+
+# Root endpoint
+@app.get("/", tags=["Root"])
+async def root():
+    """Root endpoint"""
+    return {
+        "message": "Welcome to NalaMAI AI Service",
+        "version": config.API_VERSION,
+        "docs": "/docs",
+        "health": "/health",
+    }
+
+
+# Include routers
+app.include_router(chat.router, prefix="/api/ai", tags=["Chat"])
+app.include_router(prediction.router, prefix="/api/ai", tags=["Prediction"])
+app.include_router(ocr.router, prefix="/api/ai", tags=["OCR"])
+app.include_router(analysis.router, prefix="/api/ai", tags=["Analysis"])
+app.include_router(vitals.router, prefix="/api/ai", tags=["Vitals"])
+app.include_router(analytics_dash.router, prefix="/api/ai", tags=["Analytics"])
+app.include_router(symptoms.router, prefix="/api/ai", tags=["Symptoms"])
+app.include_router(clinical_notes.router, prefix="/api/ai", tags=["Clinical Notes"])
+app.include_router(agent.router, prefix="/api/ai", tags=["AI Agent"])
+app.include_router(preventive_care.router, prefix="/api/ai/preventive", tags=["Preventive Care"])
+
 
 if __name__ == "__main__":
     import uvicorn
-    # Runs the AI server on port 8000 (Spring Boot is on 8080)
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+
+    uvicorn.run(
+        app,
+        host=config.HOST,
+        port=config.PORT,
+        log_level=config.LOG_LEVEL.lower(),
+    )

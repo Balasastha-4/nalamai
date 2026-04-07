@@ -1,67 +1,129 @@
 package com.nalamai.backend.controllers;
 
-import com.nalamai.backend.models.Appointment;
-import com.nalamai.backend.models.User;
-import com.nalamai.backend.repositories.AppointmentRepository;
-import com.nalamai.backend.repositories.UserRepository;
-import com.nalamai.backend.repositories.MedicalResourceRepository;
+import com.nalamai.backend.dtos.AppointmentDTO;
+import com.nalamai.backend.dtos.CreateAppointmentRequest;
+import com.nalamai.backend.dtos.UpdateAppointmentRequest;
+import com.nalamai.backend.services.AppointmentService;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import jakarta.validation.Valid;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
+@Slf4j
 @RestController
 @RequestMapping("/api/appointments")
 public class AppointmentController {
 
     @Autowired
-    private AppointmentRepository appointmentRepository;
+    private AppointmentService appointmentService;
 
-    @Autowired
-    private MedicalResourceRepository medicalResourceRepository;
-
-    @Autowired
-    private UserRepository userRepository;
-
+    /**
+     * GET /api/appointments/patient/{patientId}
+     * Get all appointments for a patient with optional filtering
+     */
     @GetMapping("/patient/{patientId}")
-    public ResponseEntity<List<Appointment>> getPatientAppointments(@PathVariable Long patientId) {
-        return ResponseEntity.ok(appointmentRepository.findByPatientId(patientId));
-    }
-
-    @GetMapping("/doctor/{doctorId}")
-    public ResponseEntity<List<Appointment>> getDoctorAppointments(@PathVariable Long doctorId) {
-        return ResponseEntity.ok(appointmentRepository.findByDoctorId(doctorId));
-    }
-
-    @PostMapping("/")
-    public ResponseEntity<?> createAppointment(@RequestBody Map<String, Object> payload) {
+    public ResponseEntity<?> getPatientAppointments(
+            @PathVariable Long patientId,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) Integer limit,
+            @RequestParam(required = false) Integer offset) {
         try {
-            Long patientId = Long.valueOf(payload.get("patient_id").toString());
-            Long doctorId = Long.valueOf(payload.get("doctor_id").toString());
-            
-            Optional<User> patientOpt = userRepository.findById(patientId);
-            Optional<User> doctorOpt = userRepository.findById(doctorId);
-
-            if (patientOpt.isEmpty() || doctorOpt.isEmpty()) {
-                return ResponseEntity.badRequest().body("Doctor or Patient not found.");
-            }
-
-            Appointment appointment = new Appointment();
-            appointment.setPatient(patientOpt.get());
-            appointment.setDoctor(doctorOpt.get());
-            appointment.setStatus("SCHEDULED");
-            appointment.setAppointmentTime(java.time.LocalDateTime.parse(payload.get("appointment_time").toString()));
-            
-            if (payload.containsKey("notes")) {
-                appointment.setNotes(payload.get("notes").toString());
-            }
-
-            return ResponseEntity.ok(appointmentRepository.save(appointment));
+            List<AppointmentDTO> appointments = appointmentService.getPatientAppointments(patientId, status, limit, offset);
+            return ResponseEntity.ok(appointments);
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body("Invalid appointment data: " + e.getMessage());
+            log.error("Error fetching patient appointments", e);
+            return ResponseEntity.badRequest().body(createErrorResponse("Failed to fetch appointments: " + e.getMessage()));
         }
+    }
+
+    /**
+     * GET /api/appointments/doctor/{doctorId}
+     * Get all appointments for a doctor
+     */
+    @GetMapping("/doctor/{doctorId}")
+    public ResponseEntity<?> getDoctorAppointments(@PathVariable Long doctorId) {
+        try {
+            List<AppointmentDTO> appointments = appointmentService.getDoctorAppointments(doctorId);
+            return ResponseEntity.ok(appointments);
+        } catch (Exception e) {
+            log.error("Error fetching doctor appointments", e);
+            return ResponseEntity.badRequest().body(createErrorResponse("Failed to fetch appointments: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * POST /api/appointments
+     * Create a new appointment
+     */
+    @PostMapping
+    public ResponseEntity<?> createAppointment(@Valid @RequestBody CreateAppointmentRequest request) {
+        try {
+            AppointmentDTO appointment = appointmentService.createAppointment(request);
+            return ResponseEntity.status(HttpStatus.CREATED).body(appointment);
+        } catch (RuntimeException e) {
+            log.error("Error creating appointment", e);
+            return ResponseEntity.badRequest().body(createErrorResponse(e.getMessage()));
+        } catch (Exception e) {
+            log.error("Unexpected error creating appointment", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(createErrorResponse("Failed to create appointment"));
+        }
+    }
+
+    /**
+     * PUT /api/appointments/{appointmentId}
+     * Update an existing appointment
+     */
+    @PutMapping("/{appointmentId}")
+    public ResponseEntity<?> updateAppointment(
+            @PathVariable Long appointmentId,
+            @RequestBody UpdateAppointmentRequest request) {
+        try {
+            AppointmentDTO appointment = appointmentService.updateAppointment(appointmentId, request);
+            return ResponseEntity.ok(appointment);
+        } catch (RuntimeException e) {
+            log.error("Error updating appointment", e);
+            return ResponseEntity.badRequest().body(createErrorResponse(e.getMessage()));
+        } catch (Exception e) {
+            log.error("Unexpected error updating appointment", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(createErrorResponse("Failed to update appointment"));
+        }
+    }
+
+    /**
+     * DELETE /api/appointments/{appointmentId}
+     * Cancel/delete an appointment
+     */
+    @DeleteMapping("/{appointmentId}")
+    public ResponseEntity<?> deleteAppointment(@PathVariable Long appointmentId) {
+        try {
+            appointmentService.deleteAppointment(appointmentId);
+            return ResponseEntity.ok(createSuccessResponse("Appointment deleted successfully"));
+        } catch (RuntimeException e) {
+            log.error("Error deleting appointment", e);
+            return ResponseEntity.badRequest().body(createErrorResponse(e.getMessage()));
+        } catch (Exception e) {
+            log.error("Unexpected error deleting appointment", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(createErrorResponse("Failed to delete appointment"));
+        }
+    }
+
+    private Map<String, Object> createErrorResponse(String message) {
+        Map<String, Object> response = new HashMap<>();
+        response.put("success", false);
+        response.put("message", message);
+        return response;
+    }
+
+    private Map<String, Object> createSuccessResponse(String message) {
+        Map<String, Object> response = new HashMap<>();
+        response.put("success", true);
+        response.put("message", message);
+        return response;
     }
 }

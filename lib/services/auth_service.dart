@@ -11,7 +11,7 @@ class AuthService {
   static const String _jwtKey = 'jwt_token';
   
   // Use physical LAN IP for Emulator, localhost for iOS/Web
-  static const String _baseUrl = 'http://10.203.244.19:8080/api/users';
+  static const String _baseUrl = 'http://192.168.1.228:8080/api/users';
 
   // Remote Registration via Spring Boot 
   Future<void> registerUser({
