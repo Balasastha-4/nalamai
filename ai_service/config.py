@@ -22,15 +22,27 @@ class Config:
     PORT = int(os.getenv("PORT", 8000))
     DEBUG = os.getenv("DEBUG", "False").lower() == "true"
 
-    # CORS settings
-    ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:8080").split(",")
-    ALLOWED_CREDENTIALS = True
+    # CORS: use ALLOWED_ORIGINS=* for LAN / Flutter web demos (credentials disabled when *).
+    _cors_raw = os.getenv("ALLOWED_ORIGINS", "*").strip()
+    if _cors_raw == "*":
+        ALLOWED_ORIGINS = ["*"]
+        ALLOWED_CREDENTIALS = False
+        # Used by main.py: no extra origin regex when wildcard.
+        CORS_ALLOW_LOCALHOST_REGEX = False
+    else:
+        ALLOWED_ORIGINS = [x.strip() for x in _cors_raw.split(",") if x.strip()]
+        ALLOWED_CREDENTIALS = True
+        # Flutter web / Vite often use random localhost ports not listed in ALLOWED_ORIGINS.
+        CORS_ALLOW_LOCALHOST_REGEX = True
     ALLOWED_METHODS = ["*"]
     ALLOWED_HEADERS = ["*"]
 
     # Google Generative AI settings
     GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
-    GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-pro")
+    # gemini-2.0-flash free tier is often exhausted (limit 0); try gemini-1.5-flash or gemini-pro.
+    GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+    # Set to true to skip Gemini entirely (no 429 retries in logs) — tool-only agent path only.
+    AGENT_TOOLS_ONLY = os.getenv("AGENT_TOOLS_ONLY", "").lower() in ("1", "true", "yes")
 
     # Backend API settings
     BACKEND_API_URL = os.getenv("BACKEND_API_URL", "http://localhost:8080")

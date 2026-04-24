@@ -4,6 +4,9 @@ Google Gemini AI Service Integration
 
 import logging
 from typing import Optional, List, Dict, Any
+
+from google.api_core.exceptions import ResourceExhausted
+
 from config import config
 from app.utils.logger import get_logger
 
@@ -236,6 +239,10 @@ Always prioritize patient safety and recommend professional medical consultation
                 "function_calls": function_calls,
             }
 
+        except ResourceExhausted as e:
+            # Caller (e.g. agent.py) may fall back to tool-only; avoid huge stack traces in logs.
+            logger.warning("Gemini quota/rate limit in chat_with_function_calling: %s", e)
+            raise
         except Exception as e:
             logger.error(f"Error in chat_with_function_calling: {str(e)}", exc_info=e)
             raise
@@ -349,11 +356,34 @@ Note: This is an AI assistant's analysis, not a medical diagnosis. Always consul
 
 # Global instance
 _gemini_service: Optional[GeminiService] = None
+_gemini_unavailable: bool = False
+
+
+def get_gemini_service_optional() -> Optional[GeminiService]:
+    """Return Gemini client when GOOGLE_API_KEY is set and init succeeds; otherwise None."""
+    global _gemini_service, _gemini_unavailable
+    if _gemini_unavailable:
+        return None
+    if _gemini_service is not None:
+        return _gemini_service
+    if not config.GOOGLE_API_KEY:
+        logger.warning("GOOGLE_API_KEY not set — LLM features disabled; tool-only agent path available.")
+        _gemini_unavailable = True
+        return None
+    try:
+        _gemini_service = GeminiService()
+        return _gemini_service
+    except Exception as e:
+        logger.warning("Gemini init failed (%s); LLM disabled.", e)
+        _gemini_unavailable = True
+        return None
 
 
 def get_gemini_service() -> GeminiService:
-    """Get or create Gemini service instance"""
-    global _gemini_service
-    if _gemini_service is None:
-        _gemini_service = GeminiService()
-    return _gemini_service
+    """Get or create Gemini service instance (raises if unavailable)."""
+    svc = get_gemini_service_optional()
+    if svc is None:
+        raise ValueError(
+            "Gemini is not configured. Set GOOGLE_API_KEY or use endpoints that do not require LLM."
+        )
+    return svc

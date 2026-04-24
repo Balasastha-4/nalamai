@@ -10,10 +10,11 @@ from datetime import datetime
 from typing import Optional, List, Dict, Any
 
 from fastapi import APIRouter, HTTPException
+from google.api_core.exceptions import ResourceExhausted
 from pydantic import BaseModel
 
 from config import config
-from app.services.gemini_service import get_gemini_service
+from app.services.gemini_service import get_gemini_service_optional
 from app.services.agentic_ai import AgentRegistry, AgentRole
 from app.utils.logger import get_logger
 
@@ -27,10 +28,17 @@ BACKEND_API_URL = config.BACKEND_API_URL
 
 class AgentRequest(BaseModel):
     message: str
-    patient_id: str
+    patient_id: Optional[str] = None
+    user_id: Optional[str] = None  # Alias - Flutter sends user_id
     user_role: str = "patient"  # patient, doctor, admin
     token: Optional[str] = None
     context: Optional[Dict[str, Any]] = None  # Additional context
+    conversation_history: Optional[list] = None  # Previous messages
+
+    @property
+    def effective_patient_id(self) -> str:
+        """Get the patient ID from either field"""
+        return self.patient_id or self.user_id or "1"
 
 
 class AgentAction(BaseModel):
@@ -455,6 +463,96 @@ async def execute_tool(tool_name: str, args: dict, patient_id: str, token: str =
 
 # ========== Endpoints ==========
 
+def _preview_result(text: str, max_len: int = 200) -> str:
+    t = text.replace("\n", " ").strip()
+    if len(t) <= max_len:
+        return t
+    return t[: max_len - 1] + "…"
+
+
+async def agent_chat_tool_only(
+    request: AgentRequest, *, quota_note: Optional[str] = None
+) -> AgentResponse:
+    """
+    Real agentic path without Gemini: selects tools from the user message and
+    executes them against the Java backend so UI shows live tool traces.
+    """
+    pid = request.effective_patient_id
+    msg = request.message.lower()
+    plan: List[tuple[str, dict]] = []
+
+    def enqueue(name: str, args: dict):
+        if not any(t[0] == name for t in plan):
+            plan.append((name, args))
+
+    if any(k in msg for k in ("vital", "heart rate", "blood pressure", "spo2", "oxygen", "temp")):
+        enqueue("get_patient_vitals", {"patient_id": pid})
+    if any(k in msg for k in ("appointment", "schedule", "visit", "calendar")):
+        enqueue("get_appointments", {"patient_id": pid, "user_role": request.user_role})
+    if any(k in msg for k in ("risk", "assessment", "health score")):
+        enqueue("get_health_risk", {"patient_id": pid})
+    if any(k in msg for k in ("history", "record", "past visit", "medical record")):
+        enqueue("get_medical_history", {"patient_id": pid})
+    if "no-show" in msg or "noshow" in msg or "not show" in msg:
+        enqueue("predict_no_show", {"patient_id": pid})
+    if ("doctor" in msg and "list" in msg) or "available doctor" in msg:
+        enqueue("get_available_doctors", {})
+    if any(k in msg for k in ("medication", "medicine", "pill", "prescription")):
+        enqueue("get_medications", {"patient_id": pid})
+
+    if not plan:
+        enqueue("get_patient_vitals", {"patient_id": pid})
+        enqueue("get_appointments", {"patient_id": pid, "user_role": request.user_role})
+
+    actions_taken: List[AgentAction] = []
+    lines: List[str] = []
+    for tool_name, args in plan[:5]:
+        raw = await execute_tool(tool_name, args, pid, request.token, request.user_role)
+        snippet = raw[:800] if len(raw) > 800 else raw
+        actions_taken.append(
+            AgentAction(
+                tool_name=tool_name,
+                parameters=args,
+                result=snippet,
+                timestamp=datetime.now().isoformat(),
+            )
+        )
+        lines.append(f"• **{tool_name}**: {_preview_result(snippet)}")
+
+    reply = (
+        "### Agentic run (live backend tools)\n\n"
+        "The orchestrator mapped your message to **real API tools** and executed them "
+        "against the Spring Boot server. Below is a short digest of each tool output.\n\n"
+        + "\n".join(lines)
+        + "\n\n_Set `GOOGLE_API_KEY` to add Gemini reasoning on top of these tools._"
+    )
+    if quota_note:
+        reply += f"\n\n_{quota_note}_"
+
+    if request.user_role == "patient":
+        suggestions = [
+            "Show my vitals",
+            "List my appointments",
+            "Assess my health risk",
+            "Summarize my medical history",
+        ]
+    else:
+        suggestions = [
+            "List my appointments today",
+            "Show no-show predictions",
+            "Find available doctors",
+            "Patient health risk overview",
+        ]
+
+    return AgentResponse(
+        status="success",
+        reply=reply,
+        actions_taken=actions_taken,
+        suggestions=suggestions[:4],
+        requires_followup=len(actions_taken) > 0,
+    )
+
+
 @router.post("/agent", response_model=AgentResponse)
 async def agent_chat(request: AgentRequest):
     """
@@ -463,10 +561,18 @@ async def agent_chat(request: AgentRequest):
     Integrates with the multi-agent preventive healthcare system.
     """
     try:
-        logger.info(f"Agent request from {request.user_role}: {request.patient_id}")
-        
-        gemini_service = get_gemini_service()
-        
+        pid = request.effective_patient_id
+        logger.info(f"Agent request from {request.user_role}: {pid}")
+
+        if getattr(config, "AGENT_TOOLS_ONLY", False):
+            logger.info("AGENT_TOOLS_ONLY set — using tool-only agentic path")
+            return await agent_chat_tool_only(request)
+
+        gemini_service = get_gemini_service_optional()
+        if gemini_service is None:
+            logger.info("Gemini unavailable — using tool-only agentic path")
+            return await agent_chat_tool_only(request)
+
         # Build system instruction
         role_instructions = {
             "patient": """You are Nalamai Medical AI Assistant helping a PATIENT with preventive healthcare.
@@ -481,7 +587,7 @@ Be professional and concise. Support clinical decision-making with real data."""
         system_instruction = role_instructions.get(request.user_role, role_instructions["patient"])
         system_instruction += f"""
 
-Current User ID: {request.patient_id}
+Current User ID: {pid}
 User Role: {request.user_role}
 
 IMPORTANT RULES:
@@ -493,15 +599,27 @@ IMPORTANT RULES:
         
         if request.context:
             system_instruction += f"\nContext: {json.dumps(request.context)}"
-        
-        # Get AI response with function calling
-        result = await gemini_service.chat_with_function_calling(
-            message=request.message,
-            patient_id=request.patient_id,
-            system_instruction=system_instruction,
-            tools=get_tool_definitions()
-        )
-        
+
+        try:
+            result = await gemini_service.chat_with_function_calling(
+                message=request.message,
+                patient_id=pid,
+                system_instruction=system_instruction,
+                tools=get_tool_definitions(),
+            )
+        except ResourceExhausted as e:
+            logger.warning(
+                "Gemini quota/rate limit hit (%s); falling back to tool-only agent path.",
+                e,
+            )
+            return await agent_chat_tool_only(
+                request,
+                quota_note=(
+                    "Gemini returned **429 quota / rate limit**; you still get real tool "
+                    "results below. Retry later, use paid tier, or switch `GEMINI_MODEL` in `.env`."
+                ),
+            )
+
         actions_taken = []
         
         # Process function calls if any
@@ -512,7 +630,7 @@ IMPORTANT RULES:
                 
                 # Execute the tool
                 tool_result = await execute_tool(
-                    tool_name, args, request.patient_id, request.token, request.user_role
+                    tool_name, args, pid, request.token, request.user_role
                 )
                 
                 actions_taken.append(AgentAction(

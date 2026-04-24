@@ -56,9 +56,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final String? profileJson = prefs.getString('user_profile');
     final bool isAppLockEnabled = prefs.getBool('is_app_lock_enabled') ?? false;
 
+    final savedName = prefs.getString('user_display_name')?.trim() ?? '';
+
     setState(() {
       if (profileJson != null) {
         _profile = UserProfile.fromJsonString(profileJson);
+      } else if (savedName.isNotEmpty) {
+        _profile = UserProfile(
+          name: savedName,
+          age: '',
+          bloodGroup: '',
+          allergies: '',
+          medicalHistory: '',
+          emergencyContactName: '',
+          emergencyContactPhone: '',
+        );
       } else {
         _profile = UserProfile.empty();
       }

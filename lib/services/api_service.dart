@@ -1,45 +1,19 @@
 import 'dart:convert';
-import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
+import '../app_config.dart';
 import '../models/medical_record.dart';
 import '../models/schedule_model.dart';
 import 'auth_service.dart';
 
 class ApiService {
-  // Configurable base URLs - defaults for different environments
-  static String _backendUrl = _getDefaultBackendUrl();
-  static String _aiServiceUrl = _getDefaultAiServiceUrl();
+  static String _backendUrl = AppConfig.backendBaseUrl;
+  static String _aiServiceUrl = AppConfig.aiServiceBaseUrl;
 
   static String get baseUrl => _backendUrl;
   static String get aiBaseUrl => _aiServiceUrl;
 
   final AuthService _authService = AuthService();
-
-  // Get default backend URL based on platform
-  static String _getDefaultBackendUrl() {
-    if (kIsWeb) {
-      return 'http://localhost:8080';
-    } else if (Platform.isAndroid) {
-      // Use 10.0.2.2 for Android emulator to reach host machine
-      return 'http://10.0.2.2:8080';
-    } else if (Platform.isIOS) {
-      return 'http://localhost:8080';
-    }
-    return 'http://localhost:8080';
-  }
-
-  // Get default AI service URL based on platform
-  static String _getDefaultAiServiceUrl() {
-    if (kIsWeb) {
-      return 'http://localhost:8000';
-    } else if (Platform.isAndroid) {
-      return 'http://10.0.2.2:8000';
-    } else if (Platform.isIOS) {
-      return 'http://localhost:8000';
-    }
-    return 'http://localhost:8000';
-  }
 
   // Configure custom backend URL
   static void configureBackendUrl(String url) {

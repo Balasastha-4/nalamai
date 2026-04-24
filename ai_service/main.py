@@ -41,13 +41,19 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Add CORS middleware
+# CORS: Chrome sends Access-Control-Request-Private-Network on public→loopback calls;
+# without allow_private_network=True, preflight OPTIONS returns 400.
+_localhost_origin_regex = r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"
 app.add_middleware(
     CORSMiddleware,
     allow_origins=config.ALLOWED_ORIGINS,
+    allow_origin_regex=_localhost_origin_regex
+    if getattr(config, "CORS_ALLOW_LOCALHOST_REGEX", False)
+    else None,
     allow_credentials=config.ALLOWED_CREDENTIALS,
     allow_methods=config.ALLOWED_METHODS,
     allow_headers=config.ALLOWED_HEADERS,
+    allow_private_network=True,
 )
 
 

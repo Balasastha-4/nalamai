@@ -20,13 +20,20 @@ class AgentService {
     try {
       final userId = await _authService.getUserId() ?? '1';
       final token = await _authService.getToken();
+      final role = (await _authService.getUserRole()) ?? 'patient';
+
+      final headers = <String, String>{
+        'Content-Type': 'application/json',
+        if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
+      };
 
       final response = await http.post(
         Uri.parse('$_baseUrl/agent'),
-        headers: {'Content-Type': 'application/json'},
+        headers: headers,
         body: jsonEncode({
           'message': message,
           'user_id': userId,
+          'user_role': role,
           'conversation_history': conversationHistory ?? [],
           'context': context ?? {},
           'token': token,

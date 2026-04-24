@@ -2,16 +2,19 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../app_config.dart';
+
 class AuthService {
   static const String _pinKey = 'auth_pin';
   static const String _enabledKey = 'auth_enabled';
   static const String _isLoggedInKey = 'is_logged_in';
   static const String _userRoleKey = 'user_role'; // 'doctor' or 'patient'
   static const String _userIdKey = 'user_id';
+  static const String _userNameKey = 'user_display_name';
+  static const String _userEmailKey = 'user_email';
   static const String _jwtKey = 'jwt_token';
-  
-  // Use physical LAN IP for Emulator, localhost for iOS/Web
-  static const String _baseUrl = 'http://192.168.1.228:8080/api/users';
+
+  static String get _usersBaseUrl => '${AppConfig.backendBaseUrl}/api/users';
 
   // Remote Registration via Spring Boot 
   Future<void> registerUser({
@@ -22,7 +25,7 @@ class AuthService {
   }) async {
     try {
       final response = await http.post(
-        Uri.parse('$_baseUrl/register'),
+        Uri.parse('$_usersBaseUrl/register'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'name': name,
@@ -44,7 +47,7 @@ class AuthService {
   Future<void> login(String email, String password) async {
     try {
       final response = await http.post(
-        Uri.parse('$_baseUrl/login'),
+        Uri.parse('$_usersBaseUrl/login'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'email': email,
@@ -57,13 +60,26 @@ class AuthService {
         final role = userData['role'] ?? 'patient';
         final token = userData['token'];
         final userId = userData['user']?['id']?.toString();
-        
+        final userMap = userData['user'];
+        final name = userMap is Map<String, dynamic>
+            ? (userMap['name'] as String?)?.trim()
+            : null;
+        final email = userMap is Map<String, dynamic>
+            ? (userMap['email'] as String?)?.trim()
+            : null;
+
         // Save session locally
         final prefs = await SharedPreferences.getInstance();
         await prefs.setBool(_isLoggedInKey, true);
         await prefs.setString(_userRoleKey, role);
         if (userId != null) {
           await prefs.setString(_userIdKey, userId);
+        }
+        if (name != null && name.isNotEmpty) {
+          await prefs.setString(_userNameKey, name);
+        }
+        if (email != null && email.isNotEmpty) {
+          await prefs.setString(_userEmailKey, email);
         }
         if (token != null) {
           await prefs.setString(_jwtKey, token);
@@ -81,6 +97,8 @@ class AuthService {
     await prefs.remove(_isLoggedInKey);
     await prefs.remove(_userRoleKey);
     await prefs.remove(_userIdKey);
+    await prefs.remove(_userNameKey);
+    await prefs.remove(_userEmailKey);
     await prefs.remove(_jwtKey);
   }
 
@@ -102,6 +120,17 @@ class AuthService {
   Future<String?> getUserId() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString(_userIdKey);
+  }
+
+  /// Display name from last login (also seed local profile from this).
+  Future<String?> getUserDisplayName() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_userNameKey);
+  }
+
+  Future<String?> getUserEmail() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_userEmailKey);
   }
 
   Future<bool> isAuthEnabled() async {

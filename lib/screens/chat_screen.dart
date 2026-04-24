@@ -1,22 +1,60 @@
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
-import '../services/ai_service.dart';
-import '../services/auth_service.dart';
+import '../services/agent_service.dart';
 
 class ChatMessage {
   final String text;
   final bool isUser;
   final DateTime timestamp;
   final bool isTyping;
-  final List<String> actionsTaken;
+  final List<AgentActionInfo> agentActions;
 
   ChatMessage({
     required this.text,
     required this.isUser,
     required this.timestamp,
     this.isTyping = false,
-    this.actionsTaken = const [],
+    this.agentActions = const [],
   });
+}
+
+/// Represents a single AI agent action/tool call
+class AgentActionInfo {
+  final String toolName;
+  final Map<String, dynamic> parameters;
+  final String result;
+
+  AgentActionInfo({
+    required this.toolName,
+    this.parameters = const {},
+    this.result = '',
+  });
+
+  /// Human-readable tool name
+  String get displayName {
+    switch (toolName) {
+      case 'get_patient_vitals':
+        return '📊 Fetched Patient Vitals';
+      case 'get_appointments':
+        return '📅 Checked Appointments';
+      case 'get_medical_history':
+        return '📋 Retrieved Medical History';
+      case 'book_appointment':
+        return '✅ Booked Appointment';
+      case 'get_medications':
+        return '💊 Checked Medications';
+      case 'get_available_doctors':
+        return '👨‍⚕️ Found Available Doctors';
+      case 'analyze_symptoms':
+        return '🔍 Analyzed Symptoms';
+      case 'get_health_risk':
+        return '⚠️ Assessed Health Risk';
+      case 'predict_no_show':
+        return '📈 Predicted No-Show Risk';
+      default:
+        return '🤖 $toolName';
+    }
+  }
 }
 
 class ChatScreen extends StatefulWidget {
@@ -30,7 +68,7 @@ class _ChatScreenState extends State<ChatScreen> {
   final List<ChatMessage> _messages = [];
   final TextEditingController _textController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
-  final AiService _aiService = AiService();
+  final AgentService _agentService = AgentService();
   bool _isTyping = false;
   // Suggested replies shown above keyboard
   final List<String> _suggestedReplies = [];
@@ -50,52 +88,89 @@ class _ChatScreenState extends State<ChatScreen> {
         ChatMessage(text: text, isUser: true, timestamp: DateTime.now()),
       );
       _isTyping = true;
-      _suggestedReplies.clear(); // Clear suggestions on user input
+      _suggestedReplies.clear();
     });
     _scrollToBottom();
 
-    final userId = await AuthService().getUserId() ?? "1";
+    try {
+      // Call the AGENTIC AI endpoint (with function calling & multi-agent system)
+      final response = await _agentService.chat(
+        message: text,
+        context: {'mode': 'agentic'},
+      );
 
-    // Call the real Python AI Microservice
-    _aiService.sendChatMessage(
-      text, 
-      userId, 
-      vitals: {
-        'heart_rate': 85,
-        'systolic_bp': 120,
-        'diastolic_bp': 80,
-        'spo2': 98
-      }
-    ).then((response) {
       if (mounted) {
+        if (response['status'] == 'error') {
+          _addBotMessage(
+            response['response']?.toString() ??
+                'The AI service returned an error. Check that the Python service is running on port 8000.',
+          );
+          return;
+        }
+
+        // Parse agent actions from the response
+        final List<AgentActionInfo> actions = [];
+        final actionsList = response['actions_taken'];
+        if (actionsList != null && actionsList is List) {
+          for (final action in actionsList) {
+            if (action is Map<String, dynamic>) {
+              actions.add(AgentActionInfo(
+                toolName: action['tool_name'] ?? 'unknown',
+                parameters: action['parameters'] is Map<String, dynamic>
+                    ? action['parameters']
+                    : {},
+                result: action['result']?.toString() ?? '',
+              ));
+            }
+          }
+        }
+
+        // Parse suggestions from the response
+        final List<String> suggestions = [];
+        final suggestionsList = response['suggestions'];
+        if (suggestionsList != null && suggestionsList is List) {
+          for (final s in suggestionsList) {
+            suggestions.add(s.toString());
+          }
+        }
+
         _addBotMessage(
-          response['reply'] ?? 'I could not process that.',
-          actionsTaken: List<String>.from(response['actions_taken'] ?? []),
+          response['reply'] ?? response['response'] ?? 'I could not process that.',
+          agentActions: actions,
+          suggestions: suggestions,
         );
       }
-    }).catchError((error) {
-       if (mounted) {
-         _addBotMessage("Sorry, I'm having trouble connecting to the medical net right now.");
-       }
-    });
+    } catch (error) {
+      if (mounted) {
+        _addBotMessage(
+            "Sorry, I'm having trouble connecting to the AI service right now. Please make sure the AI service is running on port 8000.");
+      }
+    }
   }
 
-  void _addBotMessage(String text, {List<String> actionsTaken = const []}) {
+  void _addBotMessage(String text,
+      {List<AgentActionInfo> agentActions = const [],
+      List<String> suggestions = const []}) {
     setState(() {
       _isTyping = false;
       _messages.add(
         ChatMessage(
-          text: text, 
-          isUser: false, 
+          text: text,
+          isUser: false,
           timestamp: DateTime.now(),
-          actionsTaken: actionsTaken,
+          agentActions: agentActions,
         ),
       );
-      // Add contextual suggestions based on response
-      if (text.toLowerCase().contains('appointment')) {
-        _suggestedReplies.addAll(['Book Appointment', 'Cancel', 'Not now']);
-      } else if (text.toLowerCase().contains('fever')) {
-        _suggestedReplies.addAll(['Check Symptoms', 'Call Emergency']);
+      // Add suggestions from AI or contextual defaults
+      _suggestedReplies.clear();
+      if (suggestions.isNotEmpty) {
+        _suggestedReplies.addAll(suggestions);
+      } else if (text.toLowerCase().contains('appointment')) {
+        _suggestedReplies
+            .addAll(['Book Appointment', 'Cancel', 'Not now']);
+      } else if (text.toLowerCase().contains('risk')) {
+        _suggestedReplies
+            .addAll(['Show details', 'Get recommendations', 'Thanks']);
       } else {
         _suggestedReplies.addAll(['Thank you', 'One more question']);
       }
@@ -115,8 +190,6 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
-  // Removed _getBotResponse as it's now handled by the Python backend
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -132,7 +205,7 @@ class _ChatScreenState extends State<ChatScreen> {
               radius: 18,
               backgroundColor: AppTheme.primaryBlue.withValues(alpha: 0.1),
               child: const Icon(
-                Icons.smart_toy_rounded,
+                Icons.psychology_rounded,
                 color: AppTheme.primaryBlue,
                 size: 20,
               ),
@@ -142,7 +215,7 @@ class _ChatScreenState extends State<ChatScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Dr. AI Assistant',
+                  'AI Health Agent',
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.bold,
                   ),
@@ -159,9 +232,9 @@ class _ChatScreenState extends State<ChatScreen> {
                     ),
                     const SizedBox(width: 6),
                     Text(
-                      'Always Active',
+                      'Agentic AI • Multi-Agent System',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        fontSize: 12,
+                        fontSize: 11,
                         color: Colors.grey[600],
                       ),
                     ),
@@ -174,7 +247,7 @@ class _ChatScreenState extends State<ChatScreen> {
         actions: [
           IconButton(
             icon: Icon(Icons.info_outline, color: Colors.grey[600]),
-            onPressed: () {},
+            onPressed: () => _showAgentInfo(context),
           ),
         ],
       ),
@@ -207,6 +280,56 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
           if (_suggestedReplies.isNotEmpty) _buildSuggestedReplies(),
           _buildInputArea(context),
+        ],
+      ),
+    );
+  }
+
+  void _showAgentInfo(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.psychology, color: AppTheme.primaryBlue),
+            SizedBox(width: 8),
+            Text('Agentic AI System'),
+          ],
+        ),
+        content: const SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'This chat is powered by a Multi-Agent AI system with specialized agents:',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
+              SizedBox(height: 12),
+              _AgentInfoItem(icon: '🎯', name: 'Master Agent', desc: 'Orchestrates all agents'),
+              _AgentInfoItem(icon: '📅', name: 'Scheduling Agent', desc: 'Smart appointment booking'),
+              _AgentInfoItem(icon: '📊', name: 'Predictive Agent', desc: 'Risk assessment & no-show prediction'),
+              _AgentInfoItem(icon: '🔍', name: 'Initiation Agent', desc: 'Patient eligibility checks'),
+              _AgentInfoItem(icon: '📋', name: 'HRA Agent', desc: 'Health Risk Assessment'),
+              _AgentInfoItem(icon: '🏥', name: 'Pre-Visit Agent', desc: 'Visit preparation'),
+              _AgentInfoItem(icon: '💊', name: 'Prevention Plan Agent', desc: 'Personalized care plans'),
+              _AgentInfoItem(icon: '📝', name: 'Post-Visit Agent', desc: 'Documentation & SOAP notes'),
+              _AgentInfoItem(icon: '💰', name: 'Billing Agent', desc: 'Billing & claims'),
+              _AgentInfoItem(icon: '🔄', name: 'Follow-Up Agent', desc: 'Adherence tracking'),
+              _AgentInfoItem(icon: '📧', name: 'Notification Agent', desc: 'Reminders & alerts'),
+              SizedBox(height: 12),
+              Text(
+                'Design Patterns: Reflection, Planning, Tool-Use',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Got it'),
+          ),
         ],
       ),
     );
@@ -293,7 +416,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     textCapitalization: TextCapitalization.sentences,
                     style: Theme.of(context).textTheme.bodyMedium,
                     decoration: const InputDecoration(
-                      hintText: 'Type a message...',
+                      hintText: 'Ask the AI Agent...',
                       hintStyle: TextStyle(color: Colors.grey),
                       border: InputBorder.none,
                       filled: false,
@@ -346,6 +469,38 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 }
 
+class _AgentInfoItem extends StatelessWidget {
+  final String icon;
+  final String name;
+  final String desc;
+
+  const _AgentInfoItem({required this.icon, required this.name, required this.desc});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        children: [
+          Text(icon, style: const TextStyle(fontSize: 14)),
+          const SizedBox(width: 8),
+          Expanded(
+            child: RichText(
+              text: TextSpan(
+                style: Theme.of(context).textTheme.bodySmall,
+                children: [
+                  TextSpan(text: '$name: ', style: const TextStyle(fontWeight: FontWeight.bold)),
+                  TextSpan(text: desc),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _ChatBubble extends StatelessWidget {
   final ChatMessage message;
 
@@ -367,7 +522,7 @@ class _ChatBubble extends StatelessWidget {
             radius: 12,
             backgroundColor: AppTheme.primaryBlue.withValues(alpha: 0.1),
             child: const Icon(
-              Icons.smart_toy_rounded,
+              Icons.psychology_rounded,
               size: 14,
               color: AppTheme.primaryBlue,
             ),
@@ -375,91 +530,152 @@ class _ChatBubble extends StatelessWidget {
           const SizedBox(width: 8),
         ],
         Flexible(
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-            decoration: BoxDecoration(
-              gradient: isUser
-                  ? LinearGradient(
-                      colors: [AppTheme.primaryBlue, const Color(0xFF4A90E2)],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    )
-                  : null,
-              color: isUser
-                  ? null // Use gradient
-                  : (isDark ? const Color(0xFF2D3748) : Colors.white),
-              borderRadius: BorderRadius.only(
-                topLeft: const Radius.circular(24),
-                topRight: const Radius.circular(24),
-                bottomLeft: isUser
-                    ? const Radius.circular(24)
-                    : const Radius.circular(4),
-                bottomRight: isUser
-                    ? const Radius.circular(4)
-                    : const Radius.circular(24),
-              ),
-              boxShadow: isUser || !isDark
-                  ? [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.05),
-                        blurRadius: 5,
-                        offset: const Offset(0, 2),
-                      ),
-                    ]
-                  : null,
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  message.text,
-                  style: TextStyle(
-                    color: isUser
-                        ? Colors.white
-                        : (isDark ? Colors.white : AppTheme.textDark),
-                    fontSize: 16,
-                    height: 1.4,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                decoration: BoxDecoration(
+                  gradient: isUser
+                      ? LinearGradient(
+                          colors: [AppTheme.primaryBlue, const Color(0xFF4A90E2)],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        )
+                      : null,
+                  color: isUser
+                      ? null // Use gradient
+                      : (isDark ? const Color(0xFF2D3748) : Colors.white),
+                  borderRadius: BorderRadius.only(
+                    topLeft: const Radius.circular(24),
+                    topRight: const Radius.circular(24),
+                    bottomLeft: isUser
+                        ? const Radius.circular(24)
+                        : const Radius.circular(4),
+                    bottomRight: isUser
+                        ? const Radius.circular(4)
+                        : const Radius.circular(24),
                   ),
+                  boxShadow: isUser || !isDark
+                      ? [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.05),
+                            blurRadius: 5,
+                            offset: const Offset(0, 2),
+                          ),
+                        ]
+                      : null,
                 ),
-                if (!isUser && message.actionsTaken.isNotEmpty) ...[
-                  const SizedBox(height: 12),
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: isDark ? Colors.black26 : Colors.grey[100],
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: AppTheme.primaryBlue.withValues(alpha: 0.3)),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      message.text,
+                      style: TextStyle(
+                        color: isUser
+                            ? Colors.white
+                            : (isDark ? Colors.white : AppTheme.textDark),
+                        fontSize: 16,
+                        height: 1.4,
+                      ),
                     ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
+                    const SizedBox(height: 4),
+                    // Time timestamp
+                  ],
+                ),
+              ),
+              // Agent Actions Card - Shows PROOF of Agentic AI working
+              if (!isUser && message.agentActions.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Container(
+                  margin: const EdgeInsets.only(left: 4),
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? const Color(0xFF1A2332)
+                        : const Color(0xFFF0F7FF),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: AppTheme.primaryBlue.withValues(alpha: 0.3),
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(4),
+                            decoration: BoxDecoration(
+                              color: AppTheme.primaryBlue.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: const Icon(
+                              Icons.psychology_alt,
+                              size: 14,
+                              color: AppTheme.primaryBlue,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            "Agentic AI Actions",
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: AppTheme.primaryBlue,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.green.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              '${message.agentActions.length} tool${message.agentActions.length > 1 ? 's' : ''} used',
+                              style: const TextStyle(
+                                fontSize: 10,
+                                color: Colors.green,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      ...message.agentActions.map((action) => Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Row(
                           children: [
-                            const Icon(Icons.psychology_alt, size: 14, color: AppTheme.primaryBlue),
-                            const SizedBox(width: 4),
-                            Text(
-                              "AI Actions Taken",
-                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppTheme.primaryBlue),
+                            Container(
+                              width: 6,
+                              height: 6,
+                              decoration: BoxDecoration(
+                                color: Colors.green,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                action.displayName,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: isDark ? Colors.grey[300] : Colors.grey[700],
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
                             ),
                           ],
                         ),
-                        const SizedBox(height: 4),
-                        ...message.actionsTaken.map((action) => Padding(
-                          padding: const EdgeInsets.only(top: 2),
-                          child: Text(
-                            "• $action",
-                            style: TextStyle(fontSize: 12, color: isDark ? Colors.grey[400] : Colors.grey[600]),
-                          ),
-                        )),
-                      ],
-                    ),
+                      )),
+                    ],
                   ),
-                ],
-                const SizedBox(height: 4),
-                // Time timestamp
+                ),
               ],
-            ),
+            ],
           ),
         ),
         if (isUser) const SizedBox(width: 20), // Spacer
@@ -480,7 +696,7 @@ class _TypingIndicatorBubble extends StatelessWidget {
           radius: 12,
           backgroundColor: AppTheme.primaryBlue.withValues(alpha: 0.1),
           child: const Icon(
-            Icons.smart_toy_rounded,
+            Icons.psychology_rounded,
             size: 14,
             color: AppTheme.primaryBlue,
           ),
@@ -504,7 +720,21 @@ class _TypingIndicatorBubble extends StatelessWidget {
               ),
             ],
           ),
-          child: const _TypingDots(),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const _TypingDots(),
+              const SizedBox(width: 8),
+              Text(
+                'Agent thinking...',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey[500],
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+            ],
+          ),
         ),
       ],
     );
@@ -599,25 +829,45 @@ class _EmptyState extends StatelessWidget {
                 ],
               ),
               child: const Icon(
-                Icons.health_and_safety_outlined,
+                Icons.psychology_rounded,
                 size: 64,
                 color: AppTheme.primaryBlue,
               ),
             ),
             const SizedBox(height: 24),
             Text(
-              'Hi, I\'m Dr. AI!',
+              'AI Health Agent',
               style: Theme.of(
                 context,
               ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
             Text(
-              'Your personal health companion.\nHow can I help you today?',
+              'Powered by Multi-Agent Agentic AI\nwith autonomous decision-making',
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                 color: Colors.grey[600],
                 height: 1.5,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.green.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: Colors.green.withValues(alpha: 0.3)),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.check_circle, size: 14, color: Colors.green),
+                  SizedBox(width: 6),
+                  Text(
+                    '11 Specialized Agents Active',
+                    style: TextStyle(fontSize: 12, color: Colors.green, fontWeight: FontWeight.w600),
+                  ),
+                ],
               ),
             ),
             const SizedBox(height: 48),
@@ -629,19 +879,34 @@ class _EmptyState extends StatelessWidget {
                 alignment: WrapAlignment.center,
                 children: [
                   _SuggestionCard(
-                    icon: Icons.search_rounded,
-                    label: 'Check Symptoms',
-                    onTap: () => onSuggestionSelected('Check Symptoms'),
+                    icon: Icons.favorite_rounded,
+                    label: 'Check My Vitals',
+                    onTap: () => onSuggestionSelected('Check my vitals'),
                   ),
                   _SuggestionCard(
                     icon: Icons.calendar_month_rounded,
                     label: 'Book Appointment',
-                    onTap: () => onSuggestionSelected('Book Appointment'),
+                    onTap: () => onSuggestionSelected('Book an appointment for me'),
+                  ),
+                  _SuggestionCard(
+                    icon: Icons.search_rounded,
+                    label: 'Analyze Symptoms',
+                    onTap: () => onSuggestionSelected('I have headache and fever'),
+                  ),
+                  _SuggestionCard(
+                    icon: Icons.shield_rounded,
+                    label: 'Health Risk',
+                    onTap: () => onSuggestionSelected('What is my health risk?'),
+                  ),
+                  _SuggestionCard(
+                    icon: Icons.history_rounded,
+                    label: 'Medical History',
+                    onTap: () => onSuggestionSelected('Show my medical history'),
                   ),
                   _SuggestionCard(
                     icon: Icons.medication_rounded,
-                    label: 'Pill Reminder',
-                    onTap: () => onSuggestionSelected('Set Pill Reminder'),
+                    label: 'Medications',
+                    onTap: () => onSuggestionSelected('What medications am I on?'),
                   ),
                 ],
               ),

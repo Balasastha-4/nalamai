@@ -58,12 +58,12 @@ class _PreventiveCareScreenState extends State<PreventiveCareScreen>
       ]);
 
       setState(() {
-        _eligibility = results[0];
-        _healthRisk = results[1];
-        _preventionPlan = results[2];
-        _adherence = results[3];
-        _followUps = List<Map<String, dynamic>>.from(results[4]);
-        _workflowStatus = results[5];
+        _eligibility = results[0] as Map<String, dynamic>;
+        _healthRisk = results[1] as Map<String, dynamic>;
+        _preventionPlan = results[2] as Map<String, dynamic>;
+        _adherence = results[3] as Map<String, dynamic>;
+        _followUps = List<Map<String, dynamic>>.from(results[4] as List);
+        _workflowStatus = results[5] as Map<String, dynamic>;
         _isLoading = false;
       });
     } catch (e) {

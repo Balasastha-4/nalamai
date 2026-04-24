@@ -52,6 +52,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final AgentService _agentService = AgentService();
   final AuthService _authService = AuthService();
   List<ScheduleItem> _appointments = [];
+  String _welcomeName = '';
 
   final HealthTip _dailyTip = const HealthTip(
     title: 'Daily Health Tip',
@@ -68,11 +69,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _loadData() async {
     try {
+      final displayName = (await _authService.getUserDisplayName())?.trim() ?? '';
       final userId = await _authService.getUserId() ?? '1';
       // Load data in parallel
       final results = await Future.wait([
         _apiService.getAppointments(false),
-        _vitalsService.getLatestVitals(userId),
+        _vitalsService.getLatestVitals(),
         _agentService.checkEligibility(userId),
       ]);
 
@@ -87,6 +89,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
       if (mounted) {
         setState(() {
+          _welcomeName = displayName;
           _appointments = appointments;
           _vitals = vitals;
           _wellnessScore = wellness['score'];
@@ -101,9 +104,11 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     } catch (e) {
       debugPrint('Error loading home data: $e');
-      // Use fallback data
+      final nameFallback =
+          (await _authService.getUserDisplayName())?.trim() ?? '';
       if (mounted) {
         setState(() {
+          _welcomeName = nameFallback;
           _vitals = _getDefaultVitals();
           _wellnessScore = 85;
           _scoreChange = 2;
@@ -277,7 +282,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     // Calculate change from previous
     if (data['previousScore'] != null) {
-      change = score - data['previousScore'];
+      change = score - (data['previousScore'] as num).toInt();
     } else {
       change = (score > 80) ? 2 : -2;
     }
@@ -637,7 +642,9 @@ class _HomeScreenState extends State<HomeScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Hello, Balasastha Eswaran',
+          _welcomeName.isEmpty
+              ? 'Hello'
+              : 'Hello, $_welcomeName',
           style: Theme.of(
             context,
           ).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold),
