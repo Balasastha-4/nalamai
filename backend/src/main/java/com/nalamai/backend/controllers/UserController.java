@@ -179,14 +179,14 @@ public class UserController {
                     return ResponseEntity.status(HttpStatus.NOT_FOUND)
                             .body(new ErrorResponse("User profile not found", "PROFILE_NOT_FOUND", 404));
                 }
-                return ResponseEntity.ok(userProfile.get());
+                return ResponseEntity.ok(flattenProfile(user, userProfile.get()));
             } else if ("doctor".equalsIgnoreCase(user.getRole())) {
                 Optional<DoctorProfile> doctorProfile = doctorProfileRepository.findByUserId(userId);
                 if (doctorProfile.isEmpty()) {
                     return ResponseEntity.status(HttpStatus.NOT_FOUND)
                             .body(new ErrorResponse("Doctor profile not found", "PROFILE_NOT_FOUND", 404));
                 }
-                return ResponseEntity.ok(doctorProfile.get());
+                return ResponseEntity.ok(flattenDoctorProfile(user, doctorProfile.get()));
             } else {
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                         .body(new ErrorResponse("Invalid user role", "INVALID_ROLE", 400));
@@ -198,12 +198,38 @@ public class UserController {
         }
     }
 
+    private java.util.Map<String, Object> flattenProfile(User user, UserProfile profile) {
+        java.util.Map<String, Object> map = new java.util.HashMap<>();
+        map.put("name", user.getName());
+        map.put("age", user.getDateOfBirth() != null ? user.getDateOfBirth().toString() : "");
+        if (profile != null) {
+            map.put("bloodGroup", profile.getBloodGroup());
+            map.put("allergies", profile.getAllergies());
+            map.put("medicalHistory", profile.getMedicalHistory());
+            map.put("emergencyContactName", profile.getEmergencyContactName());
+            map.put("emergencyContactPhone", profile.getEmergencyContactPhone());
+        }
+        return map;
+    }
+
+    private java.util.Map<String, Object> flattenDoctorProfile(User user, DoctorProfile profile) {
+        java.util.Map<String, Object> map = new java.util.HashMap<>();
+        map.put("name", user.getName());
+        if (profile != null) {
+            map.put("specialization", profile.getSpecialty());
+            map.put("experienceYears", profile.getYearsOfExperience());
+            map.put("licenseNumber", profile.getLicenseNumber());
+            map.put("hospitalAffiliation", profile.getHospitalName());
+        }
+        return map;
+    }
+
     /**
      * Update extended profile (UserProfile for patient or DoctorProfile for doctor)
      * PUT /api/users/{userId}/profile
      */
     @PutMapping("/{userId}/profile")
-    public ResponseEntity<?> updateExtendedProfile(@PathVariable Long userId, @RequestBody Object profileData) {
+    public ResponseEntity<?> updateExtendedProfile(@PathVariable Long userId, @RequestBody java.util.Map<String, Object> data) {
         try {
             Optional<User> userOptional = userRepository.findById(userId);
 
@@ -216,19 +242,37 @@ public class UserController {
 
             if ("patient".equalsIgnoreCase(user.getRole())) {
                 Optional<UserProfile> userProfileOptional = userProfileRepository.findByUserId(userId);
+                UserProfile userProfile = userProfileOptional.orElseGet(() -> new UserProfile(user));
 
-                if (userProfileOptional.isEmpty()) {
-                    return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                            .body(new ErrorResponse("User profile not found", "PROFILE_NOT_FOUND", 404));
+                // Update User fields if present in payload
+
+
+
+                // Update User fields if present in payload
+                if (data.containsKey("name") && data.get("name") != null) {
+                    user.setName(data.get("name").toString());
+                    userRepository.save(user);
                 }
 
-                UserProfile userProfile = userProfileOptional.get();
+                // Update UserProfile fields
+                if (data.containsKey("bloodGroup") && data.get("bloodGroup") != null) {
+                    userProfile.setBloodGroup(data.get("bloodGroup").toString());
+                }
+                if (data.containsKey("allergies") && data.get("allergies") != null) {
+                    userProfile.setAllergies(data.get("allergies").toString());
+                }
+                if (data.containsKey("medicalHistory") && data.get("medicalHistory") != null) {
+                    userProfile.setMedicalHistory(data.get("medicalHistory").toString());
+                }
+                if (data.containsKey("emergencyContactName") && data.get("emergencyContactName") != null) {
+                    userProfile.setEmergencyContactName(data.get("emergencyContactName").toString());
+                }
+                if (data.containsKey("emergencyContactPhone") && data.get("emergencyContactPhone") != null) {
+                    userProfile.setEmergencyContactPhone(data.get("emergencyContactPhone").toString());
+                }
 
-                // Update fields from request
-                // The request body should match UserProfile structure
-                // This is a simplified implementation; in production, use MapStruct or ModelMapper
                 UserProfile updated = userProfileRepository.save(userProfile);
-                return ResponseEntity.ok(updated);
+                return ResponseEntity.ok(flattenProfile(user, updated));
 
             } else if ("doctor".equalsIgnoreCase(user.getRole())) {
                 Optional<DoctorProfile> doctorProfileOptional = doctorProfileRepository.findByUserId(userId);
@@ -241,9 +285,12 @@ public class UserController {
                 DoctorProfile doctorProfile = doctorProfileOptional.get();
 
                 // Update fields from request
-                // The request body should match DoctorProfile structure
+                if (data.containsKey("specialization") && data.get("specialization") != null) {
+                    doctorProfile.setSpecialty(data.get("specialization").toString());
+                }
+
                 DoctorProfile updated = doctorProfileRepository.save(doctorProfile);
-                return ResponseEntity.ok(updated);
+                return ResponseEntity.ok(flattenDoctorProfile(user, updated));
 
             } else {
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST)

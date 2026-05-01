@@ -2,13 +2,12 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'auth_service.dart';
-import 'api_service.dart';
+import '../core/api_client.dart';
 
 /// Service for managing vitals data
 class VitalsService {
-  // Use configurable URLs from ApiService
-  static String get _baseUrl => '${ApiService.aiBaseUrl}/api/ai';
-  static String get _javaUrl => '${ApiService.baseUrl}/api';
+  // Use configurable URLs from ApiClient
+  static String get _baseUrl => '${ApiClient.aiBaseUrl}/api/ai';
   final AuthService _authService = AuthService();
 
   /// Get latest vitals for a patient

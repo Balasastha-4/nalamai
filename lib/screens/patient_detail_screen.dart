@@ -1123,6 +1123,7 @@ class _PatientDetailScreenState extends State<PatientDetailScreen>
                 documentType: type,
                 patientName: widget.patientName,
                 date: 'Feb 07, 2026', // Demo date
+                patientId: widget.patientId,
               ),
             ),
           );

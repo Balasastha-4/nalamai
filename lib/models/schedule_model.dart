@@ -30,15 +30,18 @@ class ScheduleItem {
   });
 
   factory ScheduleItem.fromJson(Map<String, dynamic> json) {
+    String? dateStr = json['appointmentTime'] ?? json['appointment_time'] ?? json['date'];
+    DateTime parsedTime = dateStr != null ? DateTime.parse(dateStr) : DateTime.now();
+
     return ScheduleItem(
-      id: json['id'].toString(),
+      id: json['id']?.toString() ?? DateTime.now().millisecondsSinceEpoch.toString(),
       title: json['diagnosis'] != null ? 'Follow up' : 'Appointment',
-      description: json['notes'] ?? 'No notes provided',
-      time: DateTime.parse(json['appointmentTime']),
+      description: json['notes'] ?? json['description'] ?? 'No notes provided',
+      time: parsedTime,
       type: ScheduleType.appointment,
       status: _parseStatus(json['status']),
-      doctorName: json['doctor'] != null ? json['doctor']['name'] : null,
-      location: 'Virtual',
+      doctorName: json['doctorName'] ?? (json['doctor'] != null ? json['doctor']['name'] : null),
+      location: json['location'] ?? json['resourceName'] ?? 'Virtual',
     );
   }
 

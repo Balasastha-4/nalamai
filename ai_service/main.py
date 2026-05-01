@@ -53,7 +53,6 @@ app.add_middleware(
     allow_credentials=config.ALLOWED_CREDENTIALS,
     allow_methods=config.ALLOWED_METHODS,
     allow_headers=config.ALLOWED_HEADERS,
-    allow_private_network=True,
 )
 
 

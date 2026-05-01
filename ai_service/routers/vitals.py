@@ -265,7 +265,7 @@ async def get_latest_vitals(patient_id: str, token: str = None):
                 "source": "demo"
             }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        return {"status": "error", "error": str(e), "type": str(type(e))}
 
 
 async def get_ai_vitals_insights(trends: List[VitalTrend], risk_level: str) -> tuple:

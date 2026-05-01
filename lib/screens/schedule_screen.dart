@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../models/schedule_model.dart';
 import '../theme/app_theme.dart';
-import '../services/api_service.dart';
+import '../repositories/interfaces/appointments_repository.dart';
+import '../repositories/appointments_repository_impl.dart';
+import '../services/reports_service.dart';
+import '../services/auth_service.dart';
 
 class ScheduleScreen extends StatefulWidget {
   const ScheduleScreen({super.key});
@@ -16,8 +19,9 @@ class _ScheduleScreenState extends State<ScheduleScreen>
   late TabController _tabController;
 
   bool _isLoading = true;
-  final ApiService _apiService = ApiService();
+  final IAppointmentsRepository _appointmentsRepo = AppointmentsRepositoryImpl();
   List<ScheduleItem> _allSchedule = [];
+  DateTime _selectedDate = DateTime.now();
 
   @override
   void initState() {
@@ -28,24 +32,36 @@ class _ScheduleScreenState extends State<ScheduleScreen>
 
   Future<void> _fetchSchedule() async {
     setState(() => _isLoading = true);
-    final appointments = await _apiService.getAppointments(false);
+    final userId = await AuthService().getUserId();
+    debugPrint('ScheduleScreen: patient logged in user ID is: $userId');
+    final appointments = await _appointmentsRepo.getAppointments(false);
+    debugPrint('Fetched ${appointments.length} appointments for patient.');
+    for (var appt in appointments) {
+      debugPrint('Patient Appointment: ID=${appt.id}, Date=${appt.time}, Title=${appt.title}');
+    }
     
-    // Generate dummy medicines since backend only does appointments for now
-    final mockMedicines = [
-      ScheduleItem(
-        id: 'mock1',
-        title: 'Amlodipine',
-        description: 'For Hypertension',
-        time: DateTime.now().add(const Duration(hours: 1)),
-        type: ScheduleType.medicine,
-        status: ScheduleStatus.upcoming,
-        dosage: '5mg (1 Tablet)',
-      )
-    ];
+    final reports = await ReportsService().getReports();
+    final List<ScheduleItem> realMedicines = [];
+    
+    for (var report in reports) {
+      for (var medicine in report.medicines) {
+        realMedicines.add(
+          ScheduleItem(
+            id: 'med_${report.id}_${medicine.hashCode}',
+            title: medicine,
+            description: 'Prescribed in diagnosis of ${report.diagnosis}',
+            time: DateTime.tryParse(report.date) ?? DateTime.now(),
+            type: ScheduleType.medicine,
+            status: ScheduleStatus.upcoming,
+            dosage: 'From ${report.doctorName}',
+          ),
+        );
+      }
+    }
 
     if (mounted) {
       setState(() {
-        _allSchedule = [...appointments, ...mockMedicines];
+        _allSchedule = [...appointments, ...realMedicines];
         _isLoading = false;
       });
     }
@@ -58,16 +74,28 @@ class _ScheduleScreenState extends State<ScheduleScreen>
   }
 
   List<ScheduleItem> _getFilteredItems(ScheduleType type) {
-    // For demo, we just filter by type.
-    // In a real app, we would also filter by _selectedDate.
-    return _allSchedule.where((item) => item.type == type).toList();
+    return _allSchedule.where((item) {
+      if (type == ScheduleType.appointment && item.type == ScheduleType.appointment) {
+        return true;
+      }
+      final isSameDate = item.time.year == _selectedDate.year &&
+          item.time.month == _selectedDate.month &&
+          item.time.day == _selectedDate.day;
+      return item.type == type && isSameDate;
+    }).toList();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Schedule'),
+        title: FutureBuilder<String?>(
+          future: AuthService().getUserId(),
+          builder: (context, snapshot) {
+            final uid = snapshot.data ?? '...';
+            return Text('Schedule (Patient ID: $uid)');
+          },
+        ),
         bottom: TabBar(
           controller: _tabController,
           labelColor: AppTheme.primaryBlue,
@@ -109,51 +137,60 @@ class _ScheduleScreenState extends State<ScheduleScreen>
         itemCount: 7,
         itemBuilder: (context, index) {
           final date = DateTime.now().add(Duration(days: index));
-          final isSelected = index == 0; // Always select today for demo
+          final isSelected = date.year == _selectedDate.year &&
+              date.month == _selectedDate.month &&
+              date.day == _selectedDate.day;
 
-          return Container(
-            width: 60,
-            margin: const EdgeInsets.only(right: 12),
-            decoration: BoxDecoration(
-              color: isSelected
-                  ? AppTheme.primaryBlue
-                  : Theme.of(context).cardColor,
-              borderRadius: BorderRadius.circular(16),
-              border: isSelected
-                  ? null
-                  : Border.all(color: Theme.of(context).dividerColor),
-              boxShadow: isSelected
-                  ? [
-                      BoxShadow(
-                        color: AppTheme.primaryBlue.withAlpha(80),
-                        blurRadius: 8,
-                        offset: const Offset(0, 4),
-                      ),
-                    ]
-                  : null,
-            ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  DateFormat('EEE').format(date).toUpperCase(),
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    color: isSelected ? Colors.white : Colors.grey,
+          return GestureDetector(
+            onTap: () {
+              setState(() {
+                _selectedDate = date;
+              });
+            },
+            child: Container(
+              width: 60,
+              margin: const EdgeInsets.only(right: 12),
+              decoration: BoxDecoration(
+                color: isSelected
+                    ? AppTheme.primaryBlue
+                    : Theme.of(context).cardColor,
+                borderRadius: BorderRadius.circular(16),
+                border: isSelected
+                    ? null
+                    : Border.all(color: Theme.of(context).dividerColor),
+                boxShadow: isSelected
+                    ? [
+                        BoxShadow(
+                          color: AppTheme.primaryBlue.withAlpha(80),
+                          blurRadius: 8,
+                          offset: const Offset(0, 4),
+                        ),
+                      ]
+                    : null,
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    DateFormat('EEE').format(date).toUpperCase(),
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: isSelected ? Colors.white : Colors.grey,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  date.day.toString(),
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: isSelected
-                        ? Colors.white
-                        : Theme.of(context).textTheme.bodyLarge?.color,
+                  const SizedBox(height: 8),
+                  Text(
+                    date.day.toString(),
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: isSelected
+                          ? Colors.white
+                          : Theme.of(context).textTheme.bodyLarge?.color,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           );
         },

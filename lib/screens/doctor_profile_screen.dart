@@ -1,9 +1,11 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../widgets/animations/custom_route_transition.dart';
 import '../services/auth_service.dart';
 import '../services/theme_service.dart';
 import '../widgets/feedback/success_feedback.dart';
+import '../core/api_client.dart';
 import 'role_selection_screen.dart';
 
 class DoctorProfileScreen extends StatefulWidget {
@@ -19,6 +21,52 @@ class _DoctorProfileScreenState extends State<DoctorProfileScreen> {
   String _phone = '+1 (555) 123-4567';
   String _email = 'dr.smith@hospital.com';
   String _location = 'City General Hospital, NY';
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchProfile();
+  }
+
+  Future<void> _fetchProfile() async {
+    if (!mounted) return;
+    try {
+      final authService = AuthService();
+      final userId = await authService.getUserId();
+      if (userId == null) {
+        return;
+      }
+
+      final apiClient = ApiClient();
+      
+      // Get base user info
+      final userRes = await apiClient.get('/api/users/$userId');
+      if (userRes.statusCode == 200) {
+        final userData = jsonDecode(userRes.body);
+        if (mounted) {
+          setState(() {
+            _name = userData['name'] ?? _name;
+            _email = userData['email'] ?? _email;
+            _phone = userData['phone'] ?? _phone;
+          });
+        }
+      }
+
+      // Get extended profile info
+      final profileRes = await apiClient.get('/api/users/$userId/profile');
+      if (profileRes.statusCode == 200) {
+        final profileData = jsonDecode(profileRes.body);
+        if (mounted) {
+          setState(() {
+            _title = profileData['specialization'] ?? profileData['specialty'] ?? _title;
+            _location = profileData['hospitalAffiliation'] ?? profileData['hospitalName'] ?? _location;
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Error fetching doctor profile: $e');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -407,35 +455,55 @@ class _DoctorProfileScreenState extends State<DoctorProfileScreen> {
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
-                    onPressed: () {
-                      setState(() {
-                        _name = nameController.text;
-                        _title = titleController.text;
-                        _phone = phoneController.text;
-                        _email = emailController.text;
-                        _location = locationController.text;
-                      });
-                      Navigator.pop(context);
+                    onPressed: () async {
+                      final authService = AuthService();
+                      final userId = await authService.getUserId();
+                      if (userId != null) {
+                        try {
+                          final apiClient = ApiClient();
+                          await apiClient.put('/api/users/$userId', body: {
+                            'name': nameController.text.trim(),
+                            'phone': phoneController.text.trim(),
+                          });
+                          await apiClient.put('/api/users/$userId/profile', body: {
+                            'specialization': titleController.text.trim(),
+                            'hospitalAffiliation': locationController.text.trim(),
+                          });
+                        } catch (e) {
+                          debugPrint('Error updating profile: $e');
+                        }
+                      }
 
-                      // Show success feedback
-                      showDialog(
-                        context: context,
-                        builder: (context) => Dialog(
-                          backgroundColor: Colors.transparent,
-                          insetPadding: EdgeInsets.zero,
-                          child: Container(
-                            padding: const EdgeInsets.all(24),
-                            decoration: BoxDecoration(
-                              color: Theme.of(context).cardColor,
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                            child: SuccessFeedback(
-                              message: 'Profile Updated Successfully!',
-                              onDismissed: () => Navigator.pop(context),
+                      if (mounted) {
+                        setState(() {
+                          _name = nameController.text;
+                          _title = titleController.text;
+                          _phone = phoneController.text;
+                          _email = emailController.text;
+                          _location = locationController.text;
+                        });
+                        Navigator.pop(context);
+
+                        // Show success feedback
+                        showDialog(
+                          context: context,
+                          builder: (context) => Dialog(
+                            backgroundColor: Colors.transparent,
+                            insetPadding: EdgeInsets.zero,
+                            child: Container(
+                              padding: const EdgeInsets.all(24),
+                              decoration: BoxDecoration(
+                                color: Theme.of(context).cardColor,
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              child: SuccessFeedback(
+                                message: 'Profile Updated Successfully!',
+                                onDismissed: () => Navigator.pop(context),
+                              ),
                             ),
                           ),
-                        ),
-                      );
+                        );
+                      }
                     },
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppTheme.primaryBlue,

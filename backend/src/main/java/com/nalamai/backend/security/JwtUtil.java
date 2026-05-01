@@ -16,7 +16,8 @@ import java.util.function.Function;
 public class JwtUtil {
     
     // In a prod env this should come from application.properties / ENV
-    private static final Key SECRET_KEY = Keys.secretKeyFor(SignatureAlgorithm.HS256);
+    private static final String SECRET_STRING = "NalamaiSecureSecretKeyForDevelopmentPurposeOnly12345";
+    private static final Key SECRET_KEY = io.jsonwebtoken.security.Keys.hmacShaKeyFor(SECRET_STRING.getBytes());
     private static final long EXPIRATION_TIME = 1000 * 60 * 60 * 24; // 24 Hours
 
     public String extractEmail(String token) {

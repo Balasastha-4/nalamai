@@ -2,11 +2,11 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'auth_service.dart';
-import 'api_service.dart';
+import '../core/api_client.dart';
 
 class AiService {
-  // Use configurable URL from ApiService
-  static String get _baseUrl => '${ApiService.aiBaseUrl}/api/ai';
+  // Use configurable URL from ApiClient
+  static String get _baseUrl => '${ApiClient.aiBaseUrl}/api/ai';
 
   Future<Map<String, dynamic>> sendChatMessage(
     String message,
@@ -16,7 +16,7 @@ class AiService {
     try {
       final token = await AuthService().getToken();
       final response = await http.post(
-        Uri.parse('$_baseUrl/chat/'),
+        Uri.parse('$_baseUrl/chat'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'message': message,
@@ -44,7 +44,7 @@ class AiService {
   ) async {
     try {
       final response = await http.post(
-        Uri.parse('$_baseUrl/predict/'),
+        Uri.parse('$_baseUrl/predict'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode(vitals),
       );
@@ -68,7 +68,7 @@ class AiService {
       final token = await AuthService().getToken();
       final request = http.MultipartRequest(
         'POST',
-        Uri.parse('$_baseUrl/ocr/'),
+        Uri.parse('$_baseUrl/ocr'),
       );
 
       request.fields['patient_id'] = patientId;

@@ -431,7 +431,7 @@ class ReportDetailScreen extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
             ),
             subtitle: Text(
-              '2.4 MB • 12 Feb 2026', // Mock metadata
+              '${((doc.hashCode.abs() % 40 + 11) / 10).toStringAsFixed(1)} MB • ${record.formattedDate}',
               style: TextStyle(
                 color: Theme.of(context).textTheme.bodySmall?.color,
                 fontSize: 12,

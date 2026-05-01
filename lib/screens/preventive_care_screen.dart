@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../services/agent_service.dart';
+import '../repositories/preventive_care_repository_impl.dart';
+import '../repositories/interfaces/preventive_care_repository.dart';
 import '../services/auth_service.dart';
 import '../widgets/animated_health_card.dart';
 
@@ -15,6 +17,7 @@ class PreventiveCareScreen extends StatefulWidget {
 class _PreventiveCareScreenState extends State<PreventiveCareScreen>
     with SingleTickerProviderStateMixin {
   final AgentService _agentService = AgentService();
+  final IPreventiveCareRepository _preventiveRepo = PreventiveCareRepositoryImpl();
   final AuthService _authService = AuthService();
 
   bool _isLoading = true;
@@ -49,7 +52,7 @@ class _PreventiveCareScreenState extends State<PreventiveCareScreen>
 
       // Load all data in parallel
       final results = await Future.wait([
-        _agentService.checkEligibility(userId),
+        _preventiveRepo.getPatientEligibility(userId),
         _agentService.assessHealthRisk(userId),
         _agentService.getPreventionPlan(userId),
         _agentService.getAdherenceTracking(userId),
@@ -77,6 +80,7 @@ class _PreventiveCareScreenState extends State<PreventiveCareScreen>
   Future<void> _executeWorkflow() async {
     final userId = await _authService.getUserId() ?? '1';
 
+    if (!mounted) return;
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -96,27 +100,31 @@ class _PreventiveCareScreenState extends State<PreventiveCareScreen>
         patientId: userId,
       );
 
-      Navigator.pop(context);
+      if (mounted) {
+        Navigator.pop(context);
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            result['status'] == 'success'
-                ? 'Workflow executed successfully!'
-                : 'Workflow completed with issues',
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              result['status'] == 'success'
+                  ? 'Workflow executed successfully!'
+                  : 'Workflow completed with issues',
+            ),
+            backgroundColor: result['status'] == 'success'
+                ? Colors.green
+                : Colors.orange,
           ),
-          backgroundColor: result['status'] == 'success'
-              ? Colors.green
-              : Colors.orange,
-        ),
-      );
+        );
+      }
 
       _loadData();
     } catch (e) {
-      Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
-      );
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        );
+      }
     }
   }
 

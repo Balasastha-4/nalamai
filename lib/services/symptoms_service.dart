@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'auth_service.dart';
-import 'api_service.dart';
+import '../core/api_client.dart';
 
 /// Symptom model for symptom checker
 class Symptom {
@@ -28,7 +28,7 @@ class Symptom {
 
 /// Service for AI-powered symptom checking
 class SymptomsService {
-  static String get _baseUrl => '${ApiService.aiBaseUrl}/api/ai';
+  static String get _baseUrl => '${ApiClient.aiBaseUrl}/api/ai';
   final AuthService _authService = AuthService();
 
   /// Check symptoms with AI analysis

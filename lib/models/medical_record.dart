@@ -51,4 +51,14 @@ class MedicalRecord {
       notes: json['notes'] ?? '',
     );
   }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'recordDate': date.toIso8601String().split('T')[0],
+      'diagnosis': diagnosis,
+      'prescription': medicines.isNotEmpty ? medicines.join(', ') : '',
+      'notes': notes,
+      'doctorId': 1, // Default fallback
+    };
+  }
 }

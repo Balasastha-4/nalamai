@@ -21,9 +21,12 @@ import 'schedule_screen.dart';
 import 'info_center_screen.dart';
 import 'prediction_screen.dart';
 import 'preventive_care_screen.dart';
-import '../services/api_service.dart';
+import 'diagnostics_screen.dart';
+import '../repositories/interfaces/appointments_repository.dart';
+import '../repositories/appointments_repository_impl.dart';
+import '../repositories/interfaces/preventive_care_repository.dart';
+import '../repositories/preventive_care_repository_impl.dart';
 import '../services/vitals_service.dart';
-import '../services/agent_service.dart';
 import '../services/auth_service.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -47,9 +50,9 @@ class _HomeScreenState extends State<HomeScreen> {
   int _calories = 0;
   Map<String, dynamic> _eligibility = {};
 
-  final ApiService _apiService = ApiService();
+  final IAppointmentsRepository _appointmentsRepo = AppointmentsRepositoryImpl();
+  final IPreventiveCareRepository _preventiveRepo = PreventiveCareRepositoryImpl();
   final VitalsService _vitalsService = VitalsService();
-  final AgentService _agentService = AgentService();
   final AuthService _authService = AuthService();
   List<ScheduleItem> _appointments = [];
   String _welcomeName = '';
@@ -73,9 +76,9 @@ class _HomeScreenState extends State<HomeScreen> {
       final userId = await _authService.getUserId() ?? '1';
       // Load data in parallel
       final results = await Future.wait([
-        _apiService.getAppointments(false),
+        _appointmentsRepo.getAppointments(false),
         _vitalsService.getLatestVitals(),
-        _agentService.checkEligibility(userId),
+        _preventiveRepo.getPatientEligibility(userId),
       ]);
 
       final appointments = results[0] as List<ScheduleItem>;
@@ -582,7 +585,9 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ),
                     const SizedBox(height: 4),
-                    Row(
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 4,
                       children: [
                         Container(
                           padding: const EdgeInsets.symmetric(
@@ -604,7 +609,6 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                           ),
                         ),
-                        const SizedBox(width: 8),
                         if (riskCategory != 'unknown')
                           Container(
                             padding: const EdgeInsets.symmetric(
@@ -638,23 +642,38 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildWelcomeSection(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(
-          _welcomeName.isEmpty
-              ? 'Hello'
-              : 'Hello, $_welcomeName',
-          style: Theme.of(
-            context,
-          ).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                _welcomeName.isEmpty ? 'Hello' : 'Hello, $_welcomeName',
+                style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Here is your daily health update.',
+                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                  color: Colors.grey[600],
+                ),
+              ),
+            ],
+          ),
         ),
-        const SizedBox(height: 4),
-        Text(
-          'Here is your daily health update.',
-          style: Theme.of(
-            context,
-          ).textTheme.bodyLarge?.copyWith(color: Colors.grey[600]),
+        IconButton(
+          icon: const Icon(Icons.build_circle_outlined, color: AppTheme.primaryBlue, size: 32),
+          tooltip: 'Diagnostics & Service Test',
+          onPressed: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const DiagnosticsScreen()),
+            );
+          },
         ),
       ],
     );

@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'auth_service.dart';
-import 'api_service.dart';
+import '../core/api_client.dart';
 
 /// Patient model for doctor's patient management
 class Patient {
@@ -49,18 +49,18 @@ class Patient {
 
   factory Patient.fromJson(Map<String, dynamic> json) => Patient(
     id: json['id']?.toString() ?? '',
-    firstName: json['firstName'] ?? json['first_name'] ?? '',
-    lastName: json['lastName'] ?? json['last_name'] ?? '',
+    firstName: json['firstName'] ?? json['first_name'] ?? (json['name'] != null ? json['name'].toString().split(' ').first : ''),
+    lastName: json['lastName'] ?? json['last_name'] ?? (json['name'] != null ? json['name'].toString().split(' ').skip(1).join(' ') : ''),
     email: json['email'],
     phone: json['phone'] ?? json['phoneNumber'],
     dateOfBirth: json['dateOfBirth'] != null || json['date_of_birth'] != null
         ? DateTime.tryParse(json['dateOfBirth'] ?? json['date_of_birth'])
         : null,
     gender: json['gender'],
-    bloodType: json['bloodType'] ?? json['blood_type'],
-    allergies: json['allergies'] != null
-        ? List<String>.from(json['allergies'])
-        : null,
+    bloodType: json['bloodType'] ?? json['blood_type'] ?? json['bloodGroup'],
+    allergies: json['allergies'] is String
+        ? [json['allergies'] as String]
+        : (json['allergies'] != null ? List<String>.from(json['allergies']) : null),
     conditions: json['conditions'] != null
         ? List<String>.from(json['conditions'])
         : null,
@@ -151,9 +151,9 @@ class ClinicalNote {
 
 /// Service for doctor's patient management
 class PatientService {
-  // Use configurable URLs from ApiService
-  static String get _javaBaseUrl => '${ApiService.baseUrl}/api';
-  static String get _pythonBaseUrl => '${ApiService.aiBaseUrl}/api/ai';
+  // Use configurable URLs from ApiClient
+  static String get _javaBaseUrl => '${ApiClient.baseUrl}/api';
+  static String get _pythonBaseUrl => '${ApiClient.aiBaseUrl}/api/ai';
   final AuthService _authService = AuthService();
 
   /// Get list of patients for a doctor
@@ -165,7 +165,7 @@ class PatientService {
     try {
       final doctorId = await _authService.getUserId() ?? '1';
 
-      var url = '$_javaBaseUrl/patients/doctor/$doctorId?page=$page&size=$size';
+      var url = '$_javaBaseUrl/doctor/$doctorId/patients?page=$page&size=$size';
       if (searchQuery != null && searchQuery.isNotEmpty) {
         url += '&search=${Uri.encodeComponent(searchQuery)}';
       }
@@ -268,7 +268,7 @@ class PatientService {
       final doctorId = await _authService.getUserId() ?? '1';
 
       final response = await http.post(
-        Uri.parse('$_javaBaseUrl/clinical-notes'),
+        Uri.parse('$_javaBaseUrl/clinical-notes/'),
         headers: await _getHeaders(),
         body: jsonEncode({
           'patientId': patientId,

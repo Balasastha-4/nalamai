@@ -5,7 +5,8 @@ import '../widgets/feedback/empty_state.dart';
 import '../widgets/feedback/skeleton_loader.dart';
 import 'analytics_screen.dart';
 import '../widgets/medical_record_card.dart';
-import '../services/api_service.dart';
+import '../repositories/interfaces/medical_records_repository.dart';
+import '../repositories/medical_records_repository_impl.dart';
 import '../services/reports_service.dart';
 import '../models/report_model.dart';
 
@@ -24,7 +25,7 @@ class _ReportsScreenState extends State<ReportsScreen>
   String _selectedFilter = 'All';
   // 0: Timeline, 1: Analytics
   bool _isLoading = true;
-  final ApiService _apiService = ApiService();
+  final IMedicalRecordsRepository _medicalRecordsRepo = MedicalRecordsRepositoryImpl();
 
   @override
   void initState() {
@@ -74,7 +75,7 @@ class _ReportsScreenState extends State<ReportsScreen>
 
     // 2. Fetch from Backend (Network dependent)
     try {
-      backendRecords = await _apiService.getMedicalRecords();
+      backendRecords = await _medicalRecordsRepo.getMedicalRecords();
       debugPrint('DEBUG: Fetched ${backendRecords.length} backend records');
     } catch (e) {
       debugPrint('Error fetching backend records: $e');
@@ -102,18 +103,21 @@ class _ReportsScreenState extends State<ReportsScreen>
             record.doctor.toLowerCase().contains(lowerQuery) ||
             record.formattedDate.toLowerCase().contains(lowerQuery);
 
-        final matchesFilter =
-            _selectedFilter == 'All' ||
+        final matchesFilter = _selectedFilter == 'All' ||
             (_selectedFilter == 'Prescriptions' &&
-                record.medicines.isNotEmpty) ||
+                (record.medicines.isNotEmpty ||
+                 record.specialty.toLowerCase().contains('prescr') ||
+                 record.diagnosis.toLowerCase().contains('prescr'))) ||
             (_selectedFilter == 'Lab Reports' &&
-                record.documents.any(
-                  (doc) => doc.toLowerCase().contains('report'),
-                )) ||
+                (record.documents.any((doc) => doc.toLowerCase().contains('report') || doc.toLowerCase().contains('lab') || doc.toLowerCase().contains('scan')) ||
+                 record.specialty.toLowerCase().contains('report') ||
+                 record.diagnosis.toLowerCase().contains('report') ||
+                 record.notes.toLowerCase().contains('report') ||
+                 record.specialty.toLowerCase().contains('lab'))) ||
             (_selectedFilter == 'Vaccinations' &&
-                record.diagnosis.toLowerCase().contains(
-                  'vaccin',
-                )); // Example logic
+                (record.diagnosis.toLowerCase().contains('vaccin') ||
+                 record.notes.toLowerCase().contains('vaccin') ||
+                 record.specialty.toLowerCase().contains('vaccin')));
 
         return matchesQuery && matchesFilter;
       }).toList();

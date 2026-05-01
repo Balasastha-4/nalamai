@@ -6,6 +6,7 @@ import 'package:nalamai/theme/app_theme.dart';
 import '../widgets/animations/custom_route_transition.dart';
 import 'package:nalamai/screens/role_selection_screen.dart';
 import 'package:nalamai/services/theme_service.dart';
+import 'diagnostics_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -129,6 +130,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
             title: 'Version',
             subtitle: '1.0.0',
             onTap: () {},
+          ),
+          const SizedBox(height: 12),
+          _buildSettingsTile(
+            context,
+            icon: Icons.build_circle_outlined,
+            title: 'Diagnostics',
+            subtitle: 'Test Telemedicine & ML Service',
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const DiagnosticsScreen()),
+            ),
           ),
           const SizedBox(height: 24),
           _buildSectionHeader('Account'),

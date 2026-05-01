@@ -4,6 +4,7 @@ import '../theme/app_theme.dart';
 import '../widgets/animations/fade_in_slide.dart';
 import '../widgets/feedback/error_state.dart';
 import 'patient_detail_screen.dart';
+import '../services/patient_service.dart';
 
 class PatientListScreen extends StatefulWidget {
   const PatientListScreen({super.key});
@@ -14,70 +15,53 @@ class PatientListScreen extends StatefulWidget {
 
 class _PatientListScreenState extends State<PatientListScreen> {
   final TextEditingController _searchController = TextEditingController();
-  final List<Map<String, dynamic>> _allPatients = [
-    {
-      'name': 'John Doe',
-      'age': 45,
-      'gender': 'Male',
-      'condition': 'Recovering from Flu',
-      'status': 'Stable',
-      'risk': 'Low',
-    },
-    {
-      'name': 'Sarah Connor',
-      'age': 32,
-      'gender': 'Female',
-      'condition': 'Hypertension',
-      'status': 'Critical',
-      'risk': 'High',
-    },
-    {
-      'name': 'Mike Ross',
-      'age': 28,
-      'gender': 'Male',
-      'condition': 'Routine Checkup',
-      'status': 'Stable',
-      'risk': 'Low',
-    },
-    {
-      'name': 'Rachel Green',
-      'age': 25,
-      'gender': 'Female',
-      'condition': 'Migraine',
-      'status': 'Observation',
-      'risk': 'Medium',
-    },
-    {
-      'name': 'Walter White',
-      'age': 52,
-      'gender': 'Male',
-      'condition': 'Respiratory Issue',
-      'status': 'Critical',
-      'risk': 'High',
-    },
-  ];
-
+  List<Map<String, dynamic>> _allPatients = [];
   List<Map<String, dynamic>> _filteredPatients = [];
+  bool _isLoading = true;
   bool _isError = false;
   String _selectedFilter = 'All';
 
   @override
   void initState() {
     super.initState();
-    _filteredPatients = _allPatients;
+    _fetchPatients();
   }
 
-  void _simulateFetch() {
-    setState(() => _isError = false);
-    // Simulate network request
-    Future.delayed(const Duration(seconds: 1), () {
+  Future<void> _fetchPatients() async {
+    if (!mounted) return;
+    setState(() {
+      _isLoading = true;
+      _isError = false;
+    });
+
+    try {
+      final List<Patient> patients = await PatientService().getPatients();
+      final List<Map<String, dynamic>> mapped = patients.map((p) => {
+        'id': p.id,
+        'name': p.fullName,
+        'age': p.age ?? 35,
+        'gender': p.gender ?? 'Male',
+        'condition': (p.conditions != null && p.conditions!.isNotEmpty) ? p.conditions!.first : 'Routine Checkup',
+        'status': 'Stable',
+        'risk': (p.conditions != null && p.conditions!.isNotEmpty) ? 'High' : 'Low',
+      }).toList();
+
       if (mounted) {
-        // Toggle error state for demonstration
         setState(() {
-          _isError = !_isError;
+          _allPatients = mapped;
+          _filteredPatients = _allPatients;
         });
       }
-    });
+    } catch (e) {
+      debugPrint('Error fetching patients: $e');
+      if (mounted) {
+        setState(() => _isError = true);
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
   }
 
   void _filterPatients(String query) {
@@ -113,9 +97,9 @@ class _PatientListScreenState extends State<PatientListScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            tooltip: 'Refresh (Simulate Error)',
+            tooltip: 'Refresh Patient List',
             color: Theme.of(context).iconTheme.color,
-            onPressed: _simulateFetch,
+            onPressed: _fetchPatients,
           ),
         ],
       ),
@@ -152,18 +136,20 @@ class _PatientListScreenState extends State<PatientListScreen> {
             ),
           ),
           Expanded(
-            child: _isError
-                ? ErrorState(
-                    title: 'Failed to load patients',
-                    message:
-                        'We could not fetch the patient list. Please check your connection and try again.',
-                    onRetry: _simulateFetch,
-                  )
-                : ListView.separated(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 8,
-                    ),
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : _isError
+                    ? ErrorState(
+                        title: 'Failed to load patients',
+                        message:
+                            'We could not fetch the patient list. Please check your connection and try again.',
+                        onRetry: _fetchPatients,
+                      )
+                    : ListView.separated(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 8,
+                        ),
                     itemCount: _filteredPatients.length,
                     separatorBuilder: (context, index) =>
                         const SizedBox(height: 12),
@@ -225,7 +211,7 @@ class _PatientListScreenState extends State<PatientListScreen> {
             transitionDuration: const Duration(milliseconds: 500),
             openBuilder: (context, _) => PatientDetailScreen(
               patientName: patient['name'],
-              patientId: 'PT-${1000 + (patient['name'] as String).length}',
+              patientId: patient['id']?.toString() ?? '1',
             ),
             closedElevation: 0,
             openElevation: 0,

@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'auth_service.dart';
-import 'api_service.dart';
+import '../core/api_client.dart';
 
 /// Alert model for notifications
 class HealthAlert {
@@ -53,8 +53,8 @@ class HealthAlert {
 
 /// Service for health alerts and notifications
 class AlertsService {
-  // Use configurable URL from ApiService
-  static String get _baseUrl => '${ApiService.baseUrl}/api';
+  // Use configurable URL from ApiClient
+  static String get _baseUrl => '${ApiClient.baseUrl}/api';
   final AuthService _authService = AuthService();
 
   /// Get all alerts for current user

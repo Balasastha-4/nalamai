@@ -4,6 +4,7 @@ import '../theme/app_theme.dart';
 import '../models/user_profile.dart';
 import '../services/auth_service.dart';
 import '../services/theme_service.dart';
+import '../services/backend_service.dart';
 import '../widgets/animations/custom_route_transition.dart';
 import '../widgets/feedback/success_feedback.dart';
 import 'role_selection_screen.dart';
@@ -23,6 +24,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
   bool _isLoading = true;
   bool _isAppLockEnabled = false;
   final _appLockService = AppLockService();
+  final _backendService = RESTBackendService();
+  final _authService = AuthService();
 
   // Controllers
   final _nameController = TextEditingController();
@@ -53,16 +56,27 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _loadProfile() async {
     final prefs = await SharedPreferences.getInstance();
-    final String? profileJson = prefs.getString('user_profile');
     final bool isAppLockEnabled = prefs.getBool('is_app_lock_enabled') ?? false;
 
-    final savedName = prefs.getString('user_display_name')?.trim() ?? '';
+    UserProfile? fetchedProfile;
+    try {
+      final userId = await _authService.getUserId();
+      if (userId != null) {
+        fetchedProfile = await _backendService.fetchUserData(userId);
+      }
+    } catch (e) {
+      debugPrint('Error fetching profile from backend: $e');
+    }
 
-    setState(() {
+    // Fallback to shared preferences if backend fails or returns null
+    if (fetchedProfile == null) {
+      final String? profileJson = prefs.getString('user_profile');
+      final savedName = prefs.getString('user_display_name')?.trim() ?? '';
+      
       if (profileJson != null) {
-        _profile = UserProfile.fromJsonString(profileJson);
+        fetchedProfile = UserProfile.fromJsonString(profileJson);
       } else if (savedName.isNotEmpty) {
-        _profile = UserProfile(
+        fetchedProfile = UserProfile(
           name: savedName,
           age: '',
           bloodGroup: '',
@@ -72,8 +86,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
           emergencyContactPhone: '',
         );
       } else {
-        _profile = UserProfile.empty();
+        fetchedProfile = UserProfile.empty();
       }
+    }
+
+    setState(() {
+      _profile = fetchedProfile!;
       _isAppLockEnabled = isAppLockEnabled;
       _populateControllers();
       _isLoading = false;
@@ -102,6 +120,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
         emergencyContactPhone: _emergencyPhoneController.text,
       );
     });
+
+    try {
+      await _backendService.syncUserData(_profile);
+    } catch (e) {
+      debugPrint('Error syncing profile to backend: $e');
+    }
 
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('user_profile', _profile.toJsonString());

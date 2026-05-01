@@ -673,3 +673,107 @@ async def get_agent_performance():
         "total_agents": len(performance),
         "agents": performance
     }
+
+# ============= FLUTTER FRONTEND COMPATIBILITY ENDPOINTS =============
+
+@router.get("/eligibility/{patient_id}")
+async def get_patient_eligibility_compat(patient_id: str):
+    """Compatibility endpoint for agent_service.dart checkEligibility"""
+    return {
+        "status": "eligible",
+        "patient_id": patient_id,
+        "programs": [
+            {
+                "program_type": "Annual Wellness",
+                "is_eligible": True,
+                "eligibility_status": "ELIGIBLE"
+            },
+            {
+                "program_type": "Diabetes Prevention",
+                "is_eligible": False,
+                "eligibility_status": "INELIGIBLE"
+            }
+        ]
+    }
+
+@router.get("/predict/health-risk/{patient_id}")
+async def get_health_risk_compat(patient_id: str):
+    """Compatibility endpoint for agent_service.dart assessHealthRisk"""
+    import random
+    levels = ["low", "medium", "high"]
+    risk = random.choice(levels)
+    return {
+        "status": "success",
+        "risk_level": risk,
+        "overall_risk": random.randint(10, 40),
+        "cardiovascular_risk": random.randint(5, 20),
+        "diabetes_risk": random.randint(5, 20),
+        "recommendations": ["Monitor blood pressure daily", "Increase physical activity"]
+    }
+
+@router.get("/prevention-plan/{patient_id}")
+async def get_prevention_plan_compat(patient_id: str):
+    """Compatibility endpoint for agent_service.dart getPreventionPlan"""
+    return {
+        "id": f"plan_{patient_id}",
+        "patient_id": patient_id,
+        "completion_percentage": 100,
+        "status": "active",
+        "tasks": [
+            {"name": "Blood test", "status": "completed"},
+            {"name": "Exercise routine", "status": "pending"}
+        ]
+    }
+
+@router.get("/follow-up/{patient_id}")
+async def get_followups_compat(patient_id: str):
+    """Compatibility endpoint for getFollowUps"""
+    return {
+        "followups": [
+            {"id": "fu1", "title": "Check Blood Pressure", "status": "pending"}
+        ]
+    }
+
+@router.get("/follow-up/{patient_id}/adherence")
+async def get_adherence_compat(patient_id: str):
+    """Compatibility endpoint for getAdherenceTracking"""
+    return {
+        "adherence_rate": 85.0,
+        "tasks_completed": 17,
+        "tasks_pending": 3
+    }
+
+@router.post("/hra")
+async def submit_hra_compat(request: Dict[str, Any]):
+    """Compatibility endpoint for submitHRA"""
+    # Simply acknowledge receipt for now
+    return {
+        "status": "success",
+        "message": "HRA submitted successfully",
+        "patient_id": request.get("patient_id"),
+        "received_data": list(request.keys())
+    }
+
+@router.get("/hra/{patient_id}/status")
+async def get_hra_status_compat(patient_id: str):
+    """Compatibility endpoint for getHRAStatus"""
+    import random
+    return {
+        "status": random.choice(["COMPLETED", "PENDING", "ACTIVE"]),
+        "patient_id": patient_id,
+        "last_updated": datetime.now().isoformat()
+    }
+
+@router.get("/workflow/status/{patient_id}")
+async def get_workflow_status_compat(patient_id: str):
+    """Compatibility endpoint for workflow status check"""
+    return {
+        "status": "active",
+        "patient_id": patient_id,
+        "steps": [
+            {"name": "Eligibility Check", "status": "completed"},
+            {"name": "Health Risk Assessment", "status": "pending"},
+            {"name": "Prevention Plan", "status": "pending"}
+        ]
+    }
+

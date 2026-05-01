@@ -1,12 +1,17 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../widgets/animations/fade_in_slide.dart';
+import '../core/api_client.dart';
+import '../services/auth_service.dart';
 
 class DocumentReviewScreen extends StatefulWidget {
   final String documentTitle;
   final String documentType;
   final String patientName;
   final String date;
+  final String? fileUrl;
+  final String? patientId;
 
   const DocumentReviewScreen({
     super.key,
@@ -14,6 +19,8 @@ class DocumentReviewScreen extends StatefulWidget {
     required this.documentType,
     required this.patientName,
     required this.date,
+    this.fileUrl,
+    this.patientId,
   });
 
   @override
@@ -21,6 +28,8 @@ class DocumentReviewScreen extends StatefulWidget {
 }
 
 class _DocumentReviewScreenState extends State<DocumentReviewScreen> {
+  final TransformationController _transformationController =
+      TransformationController();
   String _approvalStatus = 'Pending';
   bool _isHighlightMode = false;
   bool _isPenMode = false;
@@ -32,13 +41,91 @@ class _DocumentReviewScreenState extends State<DocumentReviewScreen> {
     {'task': 'Patient ID Verified', 'done': false},
     {'task': 'Critical Values Reviewed', 'done': false},
     {'task': 'Comparative Analysis Done', 'done': false},
-    {'task': 'Clinical Summary Verified', 'done': false},
+    {'task': 'Clinical Summary Reviewed', 'done': false},
   ];
 
   final List<Offset?> _signaturePoints = [];
+  int? _existingNoteId;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchChecklist();
+  }
+
+  Future<void> _fetchChecklist() async {
+    try {
+      final apiClient = ApiClient();
+
+      final title = Uri.encodeComponent(widget.documentTitle);
+      final res = await apiClient.get(
+        '/api/clinical-notes/search?keyword=CHECKLIST_DOCUMENT_$title',
+      );
+      if (res.statusCode == 200) {
+        final List notes = jsonDecode(res.body);
+        if (notes.isNotEmpty) {
+          final note = notes.first;
+          _existingNoteId = note['id'];
+          final String content = note['content'] ?? '';
+          if (content.contains(':')) {
+            final jsonStr = content.substring(content.indexOf(':') + 1);
+            final Map<String, dynamic> decoded = jsonDecode(jsonStr);
+            setState(() {
+              for (var item in _checklist) {
+                if (decoded.containsKey(item['task'])) {
+                  item['done'] = decoded[item['task']];
+                }
+              }
+            });
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Error fetching checklist note: $e');
+    }
+  }
+
+  Future<void> _saveChecklist() async {
+    try {
+      final authService = AuthService();
+      final doctorId = await authService.getUserId() ?? '1';
+      final apiClient = ApiClient();
+
+      final Map<String, bool> checkMap = {};
+      for (var item in _checklist) {
+        checkMap[item['task']] = item['done'] as bool;
+      }
+      final String content =
+          'CHECKLIST_DOCUMENT_${widget.documentTitle}:${jsonEncode(checkMap)}';
+
+      if (_existingNoteId != null) {
+        await apiClient.put(
+          '/api/clinical-notes/$_existingNoteId',
+          body: {'content': content, 'tag': 'Checklist'},
+        );
+      } else {
+        final res = await apiClient.post(
+          '/api/clinical-notes/',
+          body: {
+            'patient_id': widget.patientId ?? '1',
+            'doctor_id': doctorId,
+            'content': content,
+            'tag': 'Checklist',
+          },
+        );
+        if (res.statusCode == 200) {
+          final data = jsonDecode(res.body);
+          _existingNoteId = data['id'];
+        }
+      }
+    } catch (e) {
+      debugPrint('Error saving checklist note: $e');
+    }
+  }
 
   @override
   void dispose() {
+    _transformationController.dispose();
     _commentController.dispose();
     super.dispose();
   }
@@ -236,13 +323,23 @@ class _DocumentReviewScreenState extends State<DocumentReviewScreen> {
                 const Spacer(),
                 IconButton(
                   icon: const Icon(Icons.zoom_out),
-                  onPressed: () {},
+                  onPressed: () {
+                    final Matrix4 current = _transformationController.value;
+                    final Matrix4 next =
+                        current * Matrix4.diagonal3Values(1 / 1.2, 1 / 1.2, 1);
+                    _transformationController.value = next;
+                  },
                   tooltip: 'Zoom Out',
                 ),
                 const SizedBox(width: 8),
                 IconButton(
                   icon: const Icon(Icons.zoom_in),
-                  onPressed: () {},
+                  onPressed: () {
+                    final Matrix4 current = _transformationController.value;
+                    final Matrix4 next =
+                        current * Matrix4.diagonal3Values(1.2, 1.2, 1);
+                    _transformationController.value = next;
+                  },
                   tooltip: 'Zoom In',
                 ),
               ],
@@ -252,10 +349,11 @@ class _DocumentReviewScreenState extends State<DocumentReviewScreen> {
           Expanded(
             child: Stack(
               children: [
-                // Simulated Document Viewer
+                // Real/Simulated Document Viewer
                 InteractiveViewer(
+                  transformationController: _transformationController,
                   minScale: 0.5,
-                  maxScale: 3.0,
+                  maxScale: 4.0,
                   child: Container(
                     margin: const EdgeInsets.all(24),
                     decoration: BoxDecoration(
@@ -268,112 +366,169 @@ class _DocumentReviewScreenState extends State<DocumentReviewScreen> {
                         ),
                       ],
                     ),
-                    child: SingleChildScrollView(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          // Mock Document Content
-                          Container(
-                            padding: const EdgeInsets.all(40),
-                            color: Colors.white,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          'LABORATORY REPORT',
-                                          style: TextStyle(
-                                            color: Colors.grey[800],
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 18,
-                                            letterSpacing: 1.2,
+                    child:
+                        (widget.fileUrl != null && widget.fileUrl!.isNotEmpty)
+                        ? Center(
+                            child:
+                                widget.fileUrl!.toLowerCase().endsWith('.pdf')
+                                ? const Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(
+                                        Icons.picture_as_pdf,
+                                        size: 80,
+                                        color: Colors.red,
+                                      ),
+                                      SizedBox(height: 12),
+                                      Text(
+                                        'PDF Content Loaded',
+                                        style: TextStyle(
+                                          color: Colors.black54,
+                                          fontSize: 16,
+                                        ),
+                                      ),
+                                    ],
+                                  )
+                                : Image.network(
+                                    widget.fileUrl!,
+                                    fit: BoxFit.contain,
+                                    errorBuilder:
+                                        (
+                                          context,
+                                          error,
+                                          stackTrace,
+                                        ) => const Center(
+                                          child: Column(
+                                            mainAxisAlignment:
+                                                MainAxisAlignment.center,
+                                            children: [
+                                              Icon(
+                                                Icons.broken_image,
+                                                size: 60,
+                                                color: Colors.grey,
+                                              ),
+                                              SizedBox(height: 8),
+                                              Text(
+                                                'Could not load document preview',
+                                                style: TextStyle(
+                                                  color: Colors.grey,
+                                                ),
+                                              ),
+                                            ],
                                           ),
                                         ),
-                                        const SizedBox(height: 8),
-                                        Text(
-                                          'Report ID: #LAB-2026-8849',
-                                          style: TextStyle(
-                                            color: Colors.grey[600],
-                                            fontSize: 12,
+                                  ),
+                          )
+                        : SingleChildScrollView(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                // Mock Document Content
+                                Container(
+                                  padding: const EdgeInsets.all(40),
+                                  color: Colors.white,
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                'LABORATORY REPORT',
+                                                style: TextStyle(
+                                                  color: Colors.grey[800],
+                                                  fontWeight: FontWeight.bold,
+                                                  fontSize: 18,
+                                                  letterSpacing: 1.2,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 8),
+                                              Text(
+                                                'Report ID: #LAB-2026-8849',
+                                                style: TextStyle(
+                                                  color: Colors.grey[600],
+                                                  fontSize: 12,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                          Icon(
+                                            Icons.medical_services_outlined,
+                                            size: 40,
+                                            color: AppTheme.primaryBlue
+                                                .withValues(alpha: 0.5),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 40),
+                                      _buildMockLine(width: 200),
+                                      const SizedBox(height: 12),
+                                      _buildMockLine(width: double.infinity),
+                                      const SizedBox(height: 8),
+                                      _buildMockLine(width: double.infinity),
+                                      const SizedBox(height: 8),
+                                      _buildMockLine(width: 280),
+                                      const SizedBox(height: 32),
+                                      const Text(
+                                        'TEST RESULTS',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 14,
+                                          color: Colors.black87,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 16),
+                                      Table(
+                                        border: TableBorder.all(
+                                          color: Colors.grey[300]!,
+                                        ),
+                                        children: [
+                                          _buildTableRow(
+                                            'Hemoglobin',
+                                            '14.2 g/dL',
+                                            false,
+                                          ),
+                                          _buildTableRow(
+                                            'WBC Count',
+                                            '7.5 K/uL',
+                                            false,
+                                          ),
+                                          _buildTableRow(
+                                            'Platelets',
+                                            '250 K/uL',
+                                            false,
+                                          ),
+                                          _buildTableRow(
+                                            'Glucose (Fast)',
+                                            '110 mg/dL',
+                                            true,
+                                          ), // Highlighted
+                                        ],
+                                      ),
+                                      const SizedBox(height: 40),
+                                      if (_isHighlightMode) ...[
+                                        Container(
+                                          padding: const EdgeInsets.all(8),
+                                          color: Colors.yellow.withValues(
+                                            alpha: 0.3,
+                                          ),
+                                          child: const Text(
+                                            'Highlighted Section',
                                           ),
                                         ),
                                       ],
-                                    ),
-                                    Icon(
-                                      Icons.medical_services_outlined,
-                                      size: 40,
-                                      color: AppTheme.primaryBlue.withValues(
-                                        alpha: 0.5,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 40),
-                                _buildMockLine(width: 200),
-                                const SizedBox(height: 12),
-                                _buildMockLine(width: double.infinity),
-                                const SizedBox(height: 8),
-                                _buildMockLine(width: double.infinity),
-                                const SizedBox(height: 8),
-                                _buildMockLine(width: 280),
-                                const SizedBox(height: 32),
-                                const Text(
-                                  'TEST RESULTS',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 14,
-                                    color: Colors.black87,
+                                    ],
                                   ),
                                 ),
-                                const SizedBox(height: 16),
-                                Table(
-                                  border: TableBorder.all(
-                                    color: Colors.grey[300]!,
-                                  ),
-                                  children: [
-                                    _buildTableRow(
-                                      'Hemoglobin',
-                                      '14.2 g/dL',
-                                      false,
-                                    ),
-                                    _buildTableRow(
-                                      'WBC Count',
-                                      '7.5 K/uL',
-                                      false,
-                                    ),
-                                    _buildTableRow(
-                                      'Platelets',
-                                      '250 K/uL',
-                                      false,
-                                    ),
-                                    _buildTableRow(
-                                      'Glucose (Fast)',
-                                      '110 mg/dL',
-                                      true,
-                                    ), // Highlighted
-                                  ],
-                                ),
-                                const SizedBox(height: 40),
-                                if (_isHighlightMode) ...[
-                                  Container(
-                                    padding: const EdgeInsets.all(8),
-                                    color: Colors.yellow.withValues(alpha: 0.3),
-                                    child: const Text('Highlighted Section'),
-                                  ),
-                                ],
                               ],
                             ),
                           ),
-                        ],
-                      ),
-                    ),
                   ),
                 ),
 
@@ -688,7 +843,12 @@ class _DocumentReviewScreenState extends State<DocumentReviewScreen> {
                     final item = _checklist[index];
                     return CheckboxListTile(
                       value: item['done'],
-                      onChanged: (val) => setState(() => item['done'] = val),
+                      onChanged: (val) {
+                        setState(() {
+                          item['done'] = val;
+                        });
+                        _saveChecklist();
+                      },
                       title: Text(
                         item['task'],
                         style: TextStyle(

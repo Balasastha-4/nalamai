@@ -6,7 +6,6 @@ import '../widgets/feedback/success_feedback.dart';
 import '../services/reports_service.dart';
 import '../services/ai_service.dart';
 import '../services/auth_service.dart';
-import '../services/api_service.dart';
 
 class ScannedDataScreen extends StatefulWidget {
   final String imagePath;
@@ -32,9 +31,13 @@ class _ScannedDataScreenState extends State<ScannedDataScreen> {
   @override
   void initState() {
     super.initState();
-    _dateController = TextEditingController(text: DateTime.now().toString().split(' ')[0]);
+    _dateController = TextEditingController(
+      text: DateTime.now().toString().split(' ')[0],
+    );
     _doctorController = TextEditingController(text: 'Scanning Document...');
-    _diagnosisController = TextEditingController(text: 'Extracting text from image...');
+    _diagnosisController = TextEditingController(
+      text: 'Extracting text from image...',
+    );
     _medicineController = TextEditingController();
     _medicines = [];
     _processImageOCR();
@@ -44,13 +47,20 @@ class _ScannedDataScreenState extends State<ScannedDataScreen> {
     try {
       final authService = AuthService();
       final userId = await authService.getUserId() ?? "1";
-      final response = await _aiService.extractTextFromImage(widget.imagePath, userId);
-      final String extractedText = response['agent_response']?.toString().trim() ?? 
-                                   response['extracted_text']?.toString().trim() ?? '';
-      
+      final response = await _aiService.extractTextFromImage(
+        widget.imagePath,
+        userId,
+      );
+      final String extractedText =
+          response['agent_response']?.toString().trim() ??
+          response['extracted_text']?.toString().trim() ??
+          '';
+
       setState(() {
         _doctorController.text = 'Unknown Doctor (Please Edit)';
-        _diagnosisController.text = extractedText.isNotEmpty ? extractedText : 'No text could be found.';
+        _diagnosisController.text = extractedText.isNotEmpty
+            ? extractedText
+            : 'No text could be found.';
         _isAnalyzing = false;
       });
     } catch (e) {
@@ -92,57 +102,57 @@ class _ScannedDataScreenState extends State<ScannedDataScreen> {
         _isSaving = true;
       });
 
-      // Simulate saving delay
-      await Future.delayed(const Duration(seconds: 1));
+      try {
+        final report = Report(
+          id: DateTime.now().millisecondsSinceEpoch.toString(),
+          date: _dateController.text,
+          doctorName: _doctorController.text,
+          diagnosis: _diagnosisController.text,
+          medicines: _medicines,
+          imagePath: widget.imagePath,
+        );
 
-      final report = Report(
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
-        date: _dateController.text,
-        doctorName: _doctorController.text,
-        diagnosis: _diagnosisController.text,
-        medicines: _medicines,
-        imagePath: widget.imagePath,
-      );
+        // Save to backend via ReportsService
+        await ReportsService().saveReport(report);
+        debugPrint('Saved Report: ${report.doctorName}, ${report.diagnosis}');
 
-      // Save to local storage
-      await ReportsService().saveReport(report);
-      debugPrint('Saved Report: ${report.doctorName}, ${report.diagnosis}');
-
-      // Sync to cloud database
-      final authService = AuthService();
-      final patientId = await authService.getUserId() ?? "1";
-      await ApiService().saveMedicalRecord(
-        patientId: patientId,
-        diagnosis: report.diagnosis,
-        medicines: report.medicines,
-        notes: 'Source: Scanned Prescription',
-      );
-
-      if (mounted) {
-        await showDialog(
-          context: context,
-          barrierDismissible: false,
-          builder: (context) => Dialog(
-            backgroundColor: Colors.transparent,
-            insetPadding: EdgeInsets.zero,
-            child: Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: Theme.of(context).cardColor,
-                borderRadius: BorderRadius.circular(16),
-              ),
-
-              child: SuccessFeedback(
-                message: 'Report saved successfully!',
-                onDismissed: () {
-                  Navigator.pop(context); // Close dialog
-                  // Navigate back to Home or Reports tab (Pop until main)
-                  Navigator.of(context).popUntil((route) => route.isFirst);
-                },
+        if (mounted) {
+          await showDialog(
+            context: context,
+            barrierDismissible: false,
+            builder: (context) => Dialog(
+              backgroundColor: Colors.transparent,
+              insetPadding: EdgeInsets.zero,
+              child: Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).cardColor,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: SuccessFeedback(
+                  message: 'Report saved successfully!',
+                  onDismissed: () {
+                    Navigator.pop(context); // Close dialog
+                    Navigator.of(context).popUntil((route) => route.isFirst);
+                  },
+                ),
               ),
             ),
-          ),
-        );
+          );
+        }
+      } catch (e) {
+        debugPrint('Error in _saveReport: $e');
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('Failed to save report: $e')));
+        }
+      } finally {
+        if (mounted) {
+          setState(() {
+            _isSaving = false;
+          });
+        }
       }
     }
   }
@@ -222,17 +232,19 @@ class _ScannedDataScreenState extends State<ScannedDataScreen> {
                         children: [
                           Expanded(
                             child: Text(
-                              _isAnalyzing ? 'Extracting Details...' : 'Edit Details',
+                              _isAnalyzing
+                                  ? 'Extracting Details...'
+                                  : 'Edit Details',
                               style: Theme.of(context).textTheme.headlineSmall
                                   ?.copyWith(fontWeight: FontWeight.bold),
                             ),
                           ),
                           if (_isAnalyzing)
                             const SizedBox(
-                              height: 20, 
-                              width: 20, 
-                              child: CircularProgressIndicator(strokeWidth: 2)
-                            )
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
                         ],
                       ),
                       const SizedBox(height: 24),
@@ -354,7 +366,9 @@ class _ScannedDataScreenState extends State<ScannedDataScreen> {
                         width: double.infinity,
                         height: 56,
                         child: ElevatedButton(
-                          onPressed: (_isSaving || _isAnalyzing) ? null : _saveReport,
+                          onPressed: (_isSaving || _isAnalyzing)
+                              ? null
+                              : _saveReport,
                           style: ElevatedButton.styleFrom(
                             backgroundColor: AppTheme.primaryBlue,
                             foregroundColor: Colors.white,
